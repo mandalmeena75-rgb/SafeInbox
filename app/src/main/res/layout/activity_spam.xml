@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#FAFAFA">
+
+    <!-- Header Bar -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:background="#D32F2F"
+        android:gravity="center_vertical"
+        android:paddingStart="8dp"
+        android:paddingEnd="16dp"
+        android:orientation="horizontal"
+        android:elevation="4dp">
+
+        <Button
+            android:id="@+id/btn_back"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="← Back"
+            android:textColor="#FFFFFF"
+            android:background="?android:attr/selectableItemBackground"
+            android:textSize="14sp" />
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Spam Messages"
+            android:textColor="#FFFFFF"
+            android:textSize="20sp"
+            android:textStyle="bold"
+            android:gravity="center" />
+
+        <!-- Spacer to balance the back button -->
+        <View
+            android:layout_width="64dp"
+            android:layout_height="1dp" />
+
+    </LinearLayout>
+
+    <!-- Empty state -->
+    <TextView
+        android:id="@+id/text_empty_spam"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:gravity="center"
+        android:text="No spam messages"
+        android:textSize="16sp"
+        android:textColor="#9E9E9E"
+        android:visibility="gone" />
+
+    <!-- Spam message list -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/recycler_spam"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:padding="4dp"
+        android:clipToPadding="false" />
+
+</LinearLayout>
