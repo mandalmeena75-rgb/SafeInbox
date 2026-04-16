@@ -1,30 +1,66 @@
 package com.example.safeinbox.detection;
 
+import com.example.safeinbox.database.MLDao;
 import com.example.safeinbox.preprocessing.TextProcessor;
+import com.example.safeinbox.utils.Constants;
 
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 
 public class MLClassifier {
 
-    private final HashMap<String, Integer> spamWordCounts;
-    private final HashMap<String, Integer> hamWordCounts;
-    private int totalSpamMessages;
-    private int totalHamMessages;
-    private int spamTotalWords;
-    private int hamTotalWords;
-    private int vocabularySize;
+    // Shared static data to keep weights in memory once loaded
+    private static HashMap<String, Integer> spamWordCounts = new HashMap<>();
+    private static HashMap<String, Integer> hamWordCounts = new HashMap<>();
+    private static int totalSpamMessages = 0;
+    private static int totalHamMessages = 0;
+    private static int spamTotalWords = 0;
+    private static int hamTotalWords = 0;
+    private static int vocabularySize = 0;
+    private static boolean isLoaded = false;
+    
+    private final MLDao mlDao;
 
-    public MLClassifier() {
-        spamWordCounts = new HashMap<>();
-        hamWordCounts = new HashMap<>();
-        totalSpamMessages = 0;
-        totalHamMessages = 0;
-        spamTotalWords = 0;
-        hamTotalWords = 0;
-        vocabularySize = 0;
-        loadDefaultTrainingData();
+    public MLClassifier(android.content.Context context) {
+        this.mlDao = new MLDao(context);
+        
+        // Only load if not already in memory
+        if (!isLoaded) {
+            loadFromPersistence();
+            isLoaded = true;
+        }
+    }
+
+    private void loadFromPersistence() {
+        // First load from DB
+        mlDao.loadWordCounts(spamWordCounts, hamWordCounts);
+        Map<String, Integer> stats = mlDao.loadGlobalStats();
+        
+        if (!stats.isEmpty()) {
+            totalSpamMessages = stats.getOrDefault(Constants.KEY_TOTAL_SPAM_MSGS, 0);
+            totalHamMessages = stats.getOrDefault(Constants.KEY_TOTAL_HAM_MSGS, 0);
+            spamTotalWords = stats.getOrDefault(Constants.KEY_SPAM_TOTAL_WORDS, 0);
+            hamTotalWords = stats.getOrDefault(Constants.KEY_HAM_TOTAL_WORDS, 0);
+            updateVocabularySize();
+        } else {
+            // If DB is empty, load defaults and save them
+            loadDefaultTrainingData();
+            saveToPersistence();
+        }
+    }
+
+    public void saveToPersistence() {
+        mlDao.saveWordCounts(spamWordCounts, hamWordCounts);
+        mlDao.saveGlobalStats(totalSpamMessages, totalHamMessages, spamTotalWords, hamTotalWords);
+    }
+
+    private void updateVocabularySize() {
+        Set<String> vocab = new HashSet<>();
+        vocab.addAll(spamWordCounts.keySet());
+        vocab.addAll(hamWordCounts.keySet());
+        vocabularySize = vocab.size();
     }
 
     private void loadDefaultTrainingData() {
@@ -72,6 +108,8 @@ public class MLClassifier {
         for (String ham : hamSamples) {
             train(processor.process(ham), false);
         }
+
+        saveToPersistence();
     }
 
     public void train(String[] words, boolean isSpam) {
@@ -93,11 +131,7 @@ public class MLClassifier {
             }
         }
 
-        // Recalculate vocabulary size
-        Set<String> vocab = new HashSet<>();
-        vocab.addAll(spamWordCounts.keySet());
-        vocab.addAll(hamWordCounts.keySet());
-        vocabularySize = vocab.size();
+        updateVocabularySize();
     }
 
     public boolean classify(String[] words) {
@@ -118,11 +152,18 @@ public class MLClassifier {
             int spamCount = spamWordCounts.getOrDefault(word, 0);
             int hamCount = hamWordCounts.getOrDefault(word, 0);
 
+            // Skip completely unknown words. With imbalanced datasets, unknown words 
+            // mathematically favor the class with fewer total words.
+            if (spamCount == 0 && hamCount == 0) {
+                continue;
+            }
+
             // Laplace smoothing: P(word|class) = (count + 1) / (totalWords + vocabSize)
             logProbSpam += Math.log((double) (spamCount + 1) / (spamTotalWords + vocabularySize));
             logProbHam += Math.log((double) (hamCount + 1) / (hamTotalWords + vocabularySize));
         }
 
-        return logProbSpam > logProbHam;
+        // Default to Ham if the confidence isn't strictly higher for Spam
+        return logProbSpam > logProbHam && (logProbSpam - logProbHam > 0.5);
     }
 }

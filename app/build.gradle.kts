@@ -51,7 +51,9 @@ dependencies {
     implementation(libs.androidx.compose.material.icons.extended)
 
     // SMS Spam Classifier — RecyclerView + CardView for Java-based UI
+    implementation("androidx.appcompat:appcompat:1.6.1")
     implementation("androidx.recyclerview:recyclerview:1.3.2")
+    implementation("androidx.swiperefreshlayout:swiperefreshlayout:1.1.0")
     implementation("androidx.cardview:cardview:1.0.0")
 
     testImplementation(libs.junit)

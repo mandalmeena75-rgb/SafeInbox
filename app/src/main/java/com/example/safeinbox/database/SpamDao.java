@@ -7,7 +7,7 @@ import android.database.sqlite.SQLiteDatabase;
 import android.os.Build;
 import android.provider.BlockedNumberContract;
 
-import com.example.safeinbox.models.SmsModel;
+import com.example.safeinbox.models.SmsMessage;
 import com.example.safeinbox.utils.Constants;
 
 import java.util.ArrayList;
@@ -20,25 +20,43 @@ public class SpamDao {
 
     public SpamDao(Context context) {
         this.context = context;
-        this.dbHelper = new DBHelper(context);
+        this.dbHelper = DBHelper.getInstance(context);
     }
 
     // ==================== Messages Table Operations ====================
 
-    public long insertMessage(SmsModel message) {
+    public long insertMessage(SmsMessage message) {
         SQLiteDatabase db = dbHelper.getWritableDatabase();
         ContentValues values = new ContentValues();
         values.put(Constants.COL_SENDER, message.getSender());
+        values.put(Constants.COL_SENDER_NAME, message.getSenderName());
         values.put(Constants.COL_BODY, message.getBody());
         values.put(Constants.COL_DATE, message.getDate());
         values.put(Constants.COL_IS_SPAM, message.isSpam() ? 1 : 0);
-        long id = db.insert(Constants.TABLE_MESSAGES, null, values);
-        db.close();
-        return id;
+        return db.insertWithOnConflict(Constants.TABLE_MESSAGES, null, values, SQLiteDatabase.CONFLICT_IGNORE);
     }
 
-    public List<SmsModel> getMessages(boolean spamOnly) {
-        List<SmsModel> messages = new ArrayList<>();
+    public void insertMessagesBatch(List<SmsMessage> messages) {
+        SQLiteDatabase db = dbHelper.getWritableDatabase();
+        db.beginTransaction();
+        try {
+            for (SmsMessage message : messages) {
+                ContentValues values = new ContentValues();
+                values.put(Constants.COL_SENDER, message.getSender());
+                values.put(Constants.COL_SENDER_NAME, message.getSenderName());
+                values.put(Constants.COL_BODY, message.getBody());
+                values.put(Constants.COL_DATE, message.getDate());
+                values.put(Constants.COL_IS_SPAM, message.isSpam() ? 1 : 0);
+                db.insertWithOnConflict(Constants.TABLE_MESSAGES, null, values, SQLiteDatabase.CONFLICT_IGNORE);
+            }
+            db.setTransactionSuccessful();
+        } finally {
+            db.endTransaction();
+        }
+    }
+
+    public List<SmsMessage> getMessages(boolean spamOnly) {
+        List<SmsMessage> messages = new ArrayList<>();
         SQLiteDatabase db = dbHelper.getReadableDatabase();
 
         String selection = Constants.COL_IS_SPAM + " = ?";
@@ -59,21 +77,21 @@ public class SpamDao {
                 while (cursor.moveToNext()) {
                     long id = cursor.getLong(cursor.getColumnIndexOrThrow(Constants.COL_ID));
                     String sender = cursor.getString(cursor.getColumnIndexOrThrow(Constants.COL_SENDER));
+                    String senderName = cursor.getString(cursor.getColumnIndexOrThrow(Constants.COL_SENDER_NAME));
                     String body = cursor.getString(cursor.getColumnIndexOrThrow(Constants.COL_BODY));
                     long date = cursor.getLong(cursor.getColumnIndexOrThrow(Constants.COL_DATE));
                     boolean isSpam = cursor.getInt(cursor.getColumnIndexOrThrow(Constants.COL_IS_SPAM)) == 1;
-                    messages.add(new SmsModel(id, sender, body, date, isSpam));
+                    messages.add(new SmsMessage(id, sender, senderName, body, date, isSpam));
                 }
             } finally {
                 cursor.close();
             }
         }
 
-        db.close();
         return messages;
     }
 
-    public SmsModel getMessageById(long messageId) {
+    public SmsMessage getMessageById(long messageId) {
         SQLiteDatabase db = dbHelper.getReadableDatabase();
         Cursor cursor = db.query(
                 Constants.TABLE_MESSAGES,
@@ -83,23 +101,23 @@ public class SpamDao {
                 null, null, null
         );
 
-        SmsModel message = null;
+        SmsMessage message = null;
         if (cursor != null) {
             try {
                 if (cursor.moveToFirst()) {
                     long id = cursor.getLong(cursor.getColumnIndexOrThrow(Constants.COL_ID));
                     String sender = cursor.getString(cursor.getColumnIndexOrThrow(Constants.COL_SENDER));
+                    String senderName = cursor.getString(cursor.getColumnIndexOrThrow(Constants.COL_SENDER_NAME));
                     String body = cursor.getString(cursor.getColumnIndexOrThrow(Constants.COL_BODY));
                     long date = cursor.getLong(cursor.getColumnIndexOrThrow(Constants.COL_DATE));
                     boolean isSpam = cursor.getInt(cursor.getColumnIndexOrThrow(Constants.COL_IS_SPAM)) == 1;
-                    message = new SmsModel(id, sender, body, date, isSpam);
+                    message = new SmsMessage(id, sender, senderName, body, date, isSpam);
                 }
             } finally {
                 cursor.close();
             }
         }
 
-        db.close();
         return message;
     }
 
@@ -110,13 +128,37 @@ public class SpamDao {
         db.update(Constants.TABLE_MESSAGES, values,
                 Constants.COL_ID + " = ?",
                 new String[]{String.valueOf(messageId)});
-        db.close();
     }
 
     public void clearMessages() {
         SQLiteDatabase db = dbHelper.getWritableDatabase();
         db.delete(Constants.TABLE_MESSAGES, null, null);
-        db.close();
+    }
+
+    public int getMessageCount() {
+        SQLiteDatabase db = dbHelper.getReadableDatabase();
+        Cursor cursor = db.rawQuery("SELECT COUNT(*) FROM " + Constants.TABLE_MESSAGES, null);
+        int count = 0;
+        if (cursor != null) {
+            if (cursor.moveToFirst()) {
+                count = cursor.getInt(0);
+            }
+            cursor.close();
+        }
+        return count;
+    }
+
+    public long getLatestMessageTimestamp() {
+        SQLiteDatabase db = dbHelper.getReadableDatabase();
+        Cursor cursor = db.rawQuery("SELECT MAX(" + Constants.COL_DATE + ") FROM " + Constants.TABLE_MESSAGES, null);
+        long timestamp = 0;
+        if (cursor != null) {
+            if (cursor.moveToFirst()) {
+                timestamp = cursor.getLong(0);
+            }
+            cursor.close();
+        }
+        return timestamp;
     }
 
     // ==================== Spam Numbers Table Operations ====================
@@ -127,7 +169,6 @@ public class SpamDao {
         values.put(Constants.COL_NUMBER, number);
         db.insertWithOnConflict(Constants.TABLE_SPAM_NUMBERS, null, values,
                 SQLiteDatabase.CONFLICT_IGNORE);
-        db.close();
     }
 
     public boolean isNumberInSpamTable(String number) {
@@ -149,7 +190,6 @@ public class SpamDao {
             cursor.close();
         }
 
-        db.close();
         return found;
     }
 
@@ -186,7 +226,6 @@ public class SpamDao {
         values.put(Constants.COL_MESSAGE_ID, messageId);
         values.put(Constants.COL_LABEL, label);
         db.insert(Constants.TABLE_FEEDBACK, null, values);
-        db.close();
 
         // Also update the is_spam flag in the messages table
         boolean isSpam = Constants.LABEL_SPAM.equals(label);

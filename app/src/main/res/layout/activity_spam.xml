@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
+    android:fitsSystemWindows="true"
     android:background="#FAFAFA">
 
     <!-- Header Bar -->
@@ -20,10 +22,10 @@
             android:id="@+id/btn_back"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="← Back"
+            android:text="Back"
             android:textColor="#FFFFFF"
-            android:background="?android:attr/selectableItemBackground"
-            android:textSize="14sp" />
+            android:backgroundTint="#607D8B"
+            android:textSize="12sp" />
 
         <TextView
             android:layout_width="0dp"
@@ -42,6 +44,28 @@
 
     </LinearLayout>
 
+    <!-- Search Bar -->
+    <androidx.cardview.widget.CardView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_margin="12dp"
+        app:cardCornerRadius="8dp"
+        app:cardElevation="2dp">
+
+        <EditText
+            android:id="@+id/edit_search_spam"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:background="@android:color/transparent"
+            android:drawableStart="@android:drawable/ic_menu_search"
+            android:drawablePadding="12dp"
+            android:hint="Search spam..."
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:singleLine="true"
+            android:textSize="14sp" />
+    </androidx.cardview.widget.CardView>
+
     <!-- Empty state -->
     <TextView
         android:id="@+id/text_empty_spam"
@@ -53,12 +77,19 @@
         android:textColor="#9E9E9E"
         android:visibility="gone" />
 
-    <!-- Spam message list -->
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/recycler_spam"
+    <!-- Swipe to refresh list -->
+    <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+        android:id="@+id/swipe_refresh_spam"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:padding="4dp"
-        android:clipToPadding="false" />
+        android:layout_height="match_parent">
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/recycler_spam"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:padding="4dp"
+            android:clipToPadding="false" />
+
+    </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
 
 </LinearLayout>

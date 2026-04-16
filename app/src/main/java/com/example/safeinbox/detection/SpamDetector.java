@@ -14,7 +14,7 @@ public class SpamDetector {
 
     public SpamDetector(Context context) {
         this.keywordFilter = new KeywordFilter();
-        this.mlClassifier = new MLClassifier();
+        this.mlClassifier = new MLClassifier(context);
         this.textProcessor = new TextProcessor();
         this.spamDao = new SpamDao(context);
     }
@@ -41,5 +41,6 @@ public class SpamDetector {
     public void trainFromFeedback(String body, boolean isSpam) {
         String[] words = textProcessor.process(body);
         mlClassifier.train(words, isSpam);
+        mlClassifier.saveToPersistence();
     }
 }

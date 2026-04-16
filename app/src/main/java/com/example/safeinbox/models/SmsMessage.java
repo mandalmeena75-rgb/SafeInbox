@@ -1,29 +1,43 @@
 package com.example.safeinbox.models;
 
-public class SmsModel {
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
+
+public class SmsMessage {
 
     private long id;
     private String sender;
+    private String senderName;
     private String body;
     private long date;
     private boolean isSpam;
 
-    public SmsModel() {
+    public SmsMessage() {
     }
 
-    public SmsModel(String sender, String body, long date) {
+    public SmsMessage(String sender, String body, long date) {
         this.sender = sender;
         this.body = body;
         this.date = date;
         this.isSpam = false;
     }
 
-    public SmsModel(long id, String sender, String body, long date, boolean isSpam) {
+    public SmsMessage(long id, String sender, String senderName, String body, long date, boolean isSpam) {
         this.id = id;
         this.sender = sender;
+        this.senderName = senderName;
         this.body = body;
         this.date = date;
         this.isSpam = isSpam;
+    }
+
+    public String getSenderName() {
+        return senderName;
+    }
+
+    public void setSenderName(String senderName) {
+        this.senderName = senderName;
     }
 
     public long getId() {
@@ -64,5 +78,11 @@ public class SmsModel {
 
     public void setSpam(boolean spam) {
         isSpam = spam;
+    }
+
+    // Helper for UI formatting
+    public String getFormattedDate() {
+        SimpleDateFormat sdf = new SimpleDateFormat("MMM dd, hh:mm a", Locale.getDefault());
+        return sdf.format(new Date(date));
     }
 }

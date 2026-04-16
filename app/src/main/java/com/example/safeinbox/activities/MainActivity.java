@@ -6,26 +6,31 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.view.View;
+import android.widget.Button;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.cardview.widget.CardView;
+
+import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
 import com.example.safeinbox.R;
 import com.example.safeinbox.database.SpamDao;
 import com.example.safeinbox.detection.SpamDetector;
-import com.example.safeinbox.models.SmsModel;
+import com.example.safeinbox.models.SmsMessage;
 import com.example.safeinbox.sms.SmsReader;
 import com.example.safeinbox.utils.Constants;
 
 import java.util.List;
 
-public class MainActivity extends Activity {
+public class MainActivity extends AppCompatActivity {
 
     private ProgressBar progressBar;
     private TextView statusText;
+    private CardView rcsCard;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -34,18 +39,44 @@ public class MainActivity extends Activity {
 
         progressBar = findViewById(R.id.progress_bar);
         statusText = findViewById(R.id.text_status);
+        rcsCard = findViewById(R.id.card_rcs);
 
         if (hasRequiredPermissions()) {
-            processMessages();
+            checkAndProceed();
         } else {
             requestRequiredPermissions();
         }
+    }
+
+    private void checkAndProceed() {
+        new Thread(() -> {
+            SpamDao dao = new SpamDao(this);
+            int count = dao.getMessageCount();
+            
+            runOnUiThread(() -> {
+                if (count > 0) {
+                    // Already have messages, show RCS setup if needed or go to Inbox
+                    if (!isNotificationServiceEnabled()) {
+                        showRcsSetup();
+                    } else {
+                        navigateToInbox();
+                    }
+                } else {
+                    // First time, scan all
+                    processMessages();
+                }
+            });
+        }).start();
     }
 
     private boolean hasRequiredPermissions() {
         return ContextCompat.checkSelfPermission(this, Manifest.permission.READ_SMS)
                 == PackageManager.PERMISSION_GRANTED
                 && ContextCompat.checkSelfPermission(this, Manifest.permission.RECEIVE_SMS)
+                == PackageManager.PERMISSION_GRANTED
+                && ContextCompat.checkSelfPermission(this, Manifest.permission.RECEIVE_MMS)
+                == PackageManager.PERMISSION_GRANTED
+                && ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CONTACTS)
                 == PackageManager.PERMISSION_GRANTED;
     }
 
@@ -54,7 +85,9 @@ public class MainActivity extends Activity {
         ActivityCompat.requestPermissions(this,
                 new String[]{
                         Manifest.permission.READ_SMS,
-                        Manifest.permission.RECEIVE_SMS
+                        Manifest.permission.RECEIVE_SMS,
+                        Manifest.permission.RECEIVE_MMS,
+                        Manifest.permission.READ_CONTACTS
                 },
                 Constants.PERMISSION_REQUEST_CODE);
     }
@@ -72,7 +105,7 @@ public class MainActivity extends Activity {
             }
 
             if (allGranted) {
-                processMessages();
+                checkAndProceed();
             } else {
                 progressBar.setVisibility(View.GONE);
                 statusText.setText("SMS permissions are required. Please grant them in Settings.");
@@ -91,7 +124,7 @@ public class MainActivity extends Activity {
             public void run() {
                 // Step 1: Read all SMS from device inbox
                 SmsReader reader = new SmsReader(MainActivity.this);
-                List<SmsModel> messages = reader.readInboxMessages();
+                List<SmsMessage> messages = reader.readInboxMessages();
 
                 // Step 2: Classify each message using the SpamDetector
                 SpamDetector detector = new SpamDetector(MainActivity.this);
@@ -100,23 +133,61 @@ public class MainActivity extends Activity {
                 // Clear old data and re-scan
                 dao.clearMessages();
 
-                for (SmsModel message : messages) {
+                for (SmsMessage message : messages) {
                     boolean isSpam = detector.isSpam(message.getSender(), message.getBody());
                     message.setSpam(isSpam);
-                    long id = dao.insertMessage(message);
-                    message.setId(id);
+                    // Name lookup is already handled inside reader.readInboxMessages()
                 }
+
+                // Step 2: Batch insert all classified messages (Superfast)
+                dao.insertMessagesBatch(messages);
 
                 // Step 3: Navigate to Inbox on the UI thread
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
-                        Intent intent = new Intent(MainActivity.this, InboxActivity.class);
-                        startActivity(intent);
-                        finish();
+                        navigateToInbox();
                     }
                 });
             }
         }).start();
+    }
+
+    private void navigateToInbox() {
+        Intent intent = new Intent(MainActivity.this, InboxActivity.class);
+        startActivity(intent);
+        finish();
+    }
+
+    private void showRcsSetup() {
+        progressBar.setVisibility(View.GONE);
+        statusText.setText("Scan completed.");
+        rcsCard.setVisibility(View.VISIBLE);
+
+        findViewById(R.id.btn_enable_rcs).setOnClickListener(v -> {
+            Intent intent = new Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS");
+            startActivity(intent);
+            
+            // Allow user to continue to inbox after clicking
+            Button enableBtn = (Button) findViewById(R.id.btn_enable_rcs);
+            enableBtn.setText("Continue to Inbox");
+            enableBtn.setOnClickListener(v2 -> navigateToInbox());
+        });
+    }
+
+    private boolean isNotificationServiceEnabled() {
+        String pkgName = getPackageName();
+        final String flat = android.provider.Settings.Secure.getString(getContentResolver(),
+                "enabled_notification_listeners");
+        if (flat != null && !flat.isEmpty()) {
+            final String[] names = flat.split(":");
+            for (String name : names) {
+                final android.content.ComponentName cn = android.content.ComponentName.unflattenFromString(name);
+                if (cn != null && pkgName.equals(cn.getPackageName())) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 }
