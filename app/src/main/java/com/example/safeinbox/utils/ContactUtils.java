@@ -1,90 +1,85 @@
 package com.example.safeinbox.utils;
 
+import android.content.ContentResolver;
 import android.content.Context;
 import android.database.Cursor;
-import android.net.Uri;
 import android.provider.ContactsContract;
 
-import java.util.HashMap;
-import java.util.Map;
+import com.example.safeinbox.models.ContactModel;
 
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * ContactUtils provides helper methods to read system contacts.
+ */
 public class ContactUtils {
 
-    // Memory cache to avoid repeated expensive system calls
-    private static final Map<String, String> contactCache = new HashMap<>();
+    public static List<ContactModel> getAllContacts(Context context) {
+        List<ContactModel> contactList = new ArrayList<>();
+        ContentResolver cr = context.getContentResolver();
+        Cursor cur = cr.query(ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                null, null, null, ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME + " ASC");
 
-    /**
-     * Looks up a contact name from a phone number using the device's address book.
-     * Returns the name if found, otherwise returns null.
-     */
-    public static String getContactName(Context context, String phoneNumber) {
-        if (phoneNumber == null || phoneNumber.isEmpty()) {
-            return null;
-        }
+        if (cur != null) {
+            int nameIndex = cur.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME);
+            int numberIndex = cur.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER);
+            int photoIndex = cur.getColumnIndex(ContactsContract.CommonDataKinds.Phone.PHOTO_THUMBNAIL_URI);
 
-        // Check cache first (near-instant)
-        if (contactCache.containsKey(phoneNumber)) {
-            return contactCache.get(phoneNumber);
-        }
-
-        // Normalize the number slightly (remove dashes, spaces) for better matching
-        // Note: We don't remove '+' as it's part of the international record
-        String lookupNumber = phoneNumber.replaceAll("[\\s\\-\\(\\)]", "");
-
-        String contactName = null;
-        Uri uri = Uri.withAppendedPath(ContactsContract.PhoneLookup.CONTENT_FILTER_URI, Uri.encode(lookupNumber));
-        String[] projection = new String[]{ContactsContract.PhoneLookup.DISPLAY_NAME};
-
-        Cursor cursor = context.getContentResolver().query(uri, projection, null, null, null);
-
-        if (cursor != null) {
-            try {
-                if (cursor.moveToFirst()) {
-                    contactName = cursor.getString(cursor.getColumnIndexOrThrow(ContactsContract.PhoneLookup.DISPLAY_NAME));
-                    // Save to cache for superfast future lookups
-                    contactCache.put(phoneNumber, contactName);
-                }
-            } catch (Exception e) {
-                e.printStackTrace();
-            } finally {
-                cursor.close();
+            while (cur.moveToNext()) {
+                String name = cur.getString(nameIndex);
+                String number = cur.getString(numberIndex);
+                String photoUri = cur.getString(photoIndex);
+                contactList.add(new ContactModel(name, number, photoUri));
             }
+            cur.close();
         }
-
-        return contactName;
+        return contactList;
     }
 
-    /**
-     * Performs a reverse lookup: Finds the first phone number associated with a given contact name.
-     */
-    public static String getPhoneNumberByName(Context context, String name) {
-        if (name == null || name.isEmpty()) return null;
-
-        String phoneNumber = null;
-        String lowerName = name.toLowerCase();
-        Uri uri = ContactsContract.CommonDataKinds.Phone.CONTENT_URI;
-        String[] projection = new String[]{ContactsContract.CommonDataKinds.Phone.NUMBER, ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME};
-        
-        // Omni-Case Fuzzy Match: Case-insensitive, prefix, and partial matching
-        String selection = "LOWER(" + ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME + ") = ? OR " + 
-                          "LOWER(" + ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME + ") LIKE ? OR " +
-                          "? LIKE '%' || LOWER(" + ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME + ") || '%'";
-        String[] selectionArgs = new String[]{lowerName, lowerName + "%", lowerName};
-
-        Cursor cursor = context.getContentResolver().query(uri, projection, selection, selectionArgs, 
-                                                         ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME + " ASC");
-
-        if (cursor != null) {
-            try {
+    public static String getContactName(Context context, String phoneNumber) {
+        if (phoneNumber == null) return null;
+        String name = null;
+        try {
+            ContentResolver cr = context.getContentResolver();
+            android.net.Uri uri = android.net.Uri.withAppendedPath(ContactsContract.PhoneLookup.CONTENT_FILTER_URI, android.net.Uri.encode(phoneNumber));
+            Cursor cursor = cr.query(uri, new String[]{ContactsContract.PhoneLookup.DISPLAY_NAME}, null, null, null);
+            if (cursor != null) {
                 if (cursor.moveToFirst()) {
-                    phoneNumber = cursor.getString(cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.NUMBER));
+                    name = cursor.getString(cursor.getColumnIndex(ContactsContract.PhoneLookup.DISPLAY_NAME));
                 }
-            } catch (Exception e) {
-                e.printStackTrace();
-            } finally {
                 cursor.close();
             }
+        } catch (Exception e) {
+            e.printStackTrace();
         }
-        return phoneNumber;
+        return name;
+    }
+
+    public static String getPhoneNumberByName(Context context, String name) {
+        if (name == null) return null;
+        String number = null;
+        try {
+            ContentResolver cr = context.getContentResolver();
+            Cursor cursor = cr.query(ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                    new String[]{ContactsContract.CommonDataKinds.Phone.NUMBER},
+                    ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME + " = ?",
+                    new String[]{name}, null);
+            if (cursor != null) {
+                if (cursor.moveToFirst()) {
+                    number = cursor.getString(cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER));
+                }
+                cursor.close();
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return number;
+    }
+
+    public static String normalizeSender(String sender) {
+        if (sender == null) return "";
+        // Remove spaces, dashes, parens and keep leading +
+        return sender.replaceAll("[^0-9+]", "");
     }
 }

@@ -5,24 +5,24 @@
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:fitsSystemWindows="true"
-    android:background="#FAFAFA">
+    android:background="@color/dark_background">
 
-    <!-- Header Bar -->
+    <!-- Header Bar with Gradient -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="56dp"
-        android:background="#1976D2"
+        android:background="@drawable/bg_header_inbox"
         android:gravity="center_vertical"
         android:paddingStart="16dp"
         android:paddingEnd="8dp"
         android:orientation="horizontal"
-        android:elevation="4dp">
+        android:elevation="6dp">
 
         <TextView
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="Inbox"
+            android:text="📬 Inbox"
             android:textColor="#FFFFFF"
             android:textSize="20sp"
             android:textStyle="bold" />
@@ -30,11 +30,14 @@
         <Button
             android:id="@+id/btn_view_spam"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="View Spam"
+            android:layout_height="36dp"
+            android:text="⚠ View Spam"
             android:textColor="#FFFFFF"
-            android:backgroundTint="#D32F2F"
-            android:textSize="12sp" />
+            android:backgroundTint="@color/btn_spam"
+            android:textSize="12sp"
+            android:textAllCaps="false"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp" />
 
     </LinearLayout>
 
@@ -43,17 +46,20 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_margin="12dp"
-        app:cardCornerRadius="8dp"
-        app:cardElevation="2dp">
+        app:cardCornerRadius="12dp"
+        app:cardElevation="2dp"
+        app:cardBackgroundColor="@color/search_background">
 
         <EditText
             android:id="@+id/edit_search"
             android:layout_width="match_parent"
             android:layout_height="48dp"
             android:background="@android:color/transparent"
-            android:drawableStart="@android:drawable/ic_menu_search"
+            android:drawableStart="@drawable/ic_search"
             android:drawablePadding="12dp"
-            android:hint="Search messages..."
+            android:hint="🔍  Search messages..."
+            android:textColor="@color/search_text"
+            android:textColorHint="@color/search_hint"
             android:paddingStart="12dp"
             android:paddingEnd="12dp"
             android:singleLine="true"
@@ -66,9 +72,9 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:gravity="center"
-        android:text="No messages found"
+        android:text="📭 No messages found"
         android:textSize="16sp"
-        android:textColor="#9E9E9E"
+        android:textColor="@color/text_secondary"
         android:visibility="gone" />
 
     <!-- Swipe to refresh list -->

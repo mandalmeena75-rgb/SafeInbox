@@ -1,11 +1,15 @@
 package com.example.safeinbox.adapters;
 
 import android.view.LayoutInflater;
+import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Filter;
 import android.widget.Filterable;
+import android.widget.ImageButton;
+import android.widget.PopupMenu;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.RecyclerView;
@@ -14,11 +18,8 @@ import com.example.safeinbox.R;
 import com.example.safeinbox.models.SmsMessage;
 import com.example.safeinbox.utils.ContactUtils;
 
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Date;
 import java.util.List;
-import java.util.Locale;
 
 public class SmsAdapter extends RecyclerView.Adapter<SmsAdapter.SmsViewHolder> implements Filterable {
 
@@ -31,6 +32,11 @@ public class SmsAdapter extends RecyclerView.Adapter<SmsAdapter.SmsViewHolder> i
 
     public interface OnMessageActionListener {
         void onMessageClick(SmsMessage message, int position);
+        void onBlockReport(SmsMessage message, int position);
+        void onMarkNotSpam(SmsMessage message, int position);
+        void onDelete(SmsMessage message, int position);
+        void onArchive(SmsMessage message, int position);
+        void onHelpFeedback(SmsMessage message, int position);
     }
 
     public SmsAdapter(List<SmsMessage> messages, OnMessageActionListener listener) {
@@ -61,17 +67,53 @@ public class SmsAdapter extends RecyclerView.Adapter<SmsAdapter.SmsViewHolder> i
     public void onBindViewHolder(SmsViewHolder holder, int position) {
         SmsMessage message = messages.get(position);
         holder.bind(message);
-        holder.itemView.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                if (listener != null) {
-                    int adapterPosition = holder.getAdapterPosition();
-                    if (adapterPosition != RecyclerView.NO_POSITION) {
-                        listener.onMessageClick(messages.get(adapterPosition), adapterPosition);
-                    }
+        
+        holder.itemView.setOnClickListener(v -> {
+            if (listener != null) {
+                int adapterPosition = holder.getAdapterPosition();
+                if (adapterPosition != RecyclerView.NO_POSITION) {
+                    listener.onMessageClick(messages.get(adapterPosition), adapterPosition);
                 }
             }
         });
+
+        if (holder.btnMenu != null) {
+            holder.btnMenu.setOnClickListener(v -> showPopupMenu(v, message, holder.getAdapterPosition()));
+        }
+    }
+
+    private void showPopupMenu(View view, SmsMessage message, int position) {
+        PopupMenu popup = new PopupMenu(view.getContext(), view);
+        popup.getMenuInflater().inflate(R.menu.item_menu, popup.getMenu());
+        
+        popup.setOnMenuItemClickListener(item -> {
+            if (listener == null || position == RecyclerView.NO_POSITION) return false;
+            
+            int id = item.getItemId();
+            if (id == R.id.action_block) {
+                listener.onBlockReport(message, position);
+                return true;
+            } else if (id == R.id.action_not_spam) {
+                // The label in menu XML is still action_not_spam for ID stability, 
+                // but we will ensure it displays "Ham" if not set in XML.
+                listener.onMarkNotSpam(message, position);
+                return true;
+            } else if (id == R.id.action_delete) {
+                listener.onDelete(message, position);
+                return true;
+            } else if (id == R.id.action_details) {
+                listener.onMessageClick(message, position);
+                return true;
+            } else if (id == R.id.action_archives) {
+                listener.onArchive(message, position);
+                return true;
+            } else if (id == R.id.action_help) {
+                listener.onHelpFeedback(message, position);
+                return true;
+            }
+            return false;
+        });
+        popup.show();
     }
 
     @Override
@@ -89,9 +131,36 @@ public class SmsAdapter extends RecyclerView.Adapter<SmsAdapter.SmsViewHolder> i
     public void removeMessage(int position) {
         if (position >= 0 && position < messages.size()) {
             SmsMessage removed = messages.remove(position);
-            messagesFull.remove(removed);
+            // Search in full list by ID to be extra safe
+            for (int i = 0; i < messagesFull.size(); i++) {
+                if (messagesFull.get(i).getId() == removed.getId()) {
+                    messagesFull.remove(i);
+                    break;
+                }
+            }
             notifyItemRemoved(position);
         }
+    }
+
+    public int removeMessageById(long id) {
+        int indexInCurrent = -1;
+        // Search in visible list
+        for (int i = 0; i < messages.size(); i++) {
+            if (messages.get(i).getId() == id) {
+                messages.remove(i);
+                indexInCurrent = i;
+                notifyItemRemoved(i);
+                break;
+            }
+        }
+        // Search and remove from full list
+        for (int i = 0; i < messagesFull.size(); i++) {
+            if (messagesFull.get(i).getId() == id) {
+                messagesFull.remove(i);
+                break;
+            }
+        }
+        return indexInCurrent;
     }
 
     @Override
@@ -134,33 +203,56 @@ public class SmsAdapter extends RecyclerView.Adapter<SmsAdapter.SmsViewHolder> i
         private final TextView senderText;
         private final TextView bodyText;
         private final TextView dateText;
+        private final ImageButton btnMenu;
 
         SmsViewHolder(View itemView) {
             super(itemView);
             senderText = itemView.findViewById(R.id.text_sender);
             bodyText = itemView.findViewById(R.id.text_body);
             dateText = itemView.findViewById(R.id.text_date);
+            btnMenu = itemView.findViewById(R.id.btn_menu);
         }
 
         void bind(SmsMessage message) {
-            // Live Lookup Fallback: If DB doesn't have a name, try a quick cached lookup
             String currentName = message.getSenderName();
             if (currentName == null) {
-                currentName = ContactUtils.getContactName(itemView.getContext(), message.getSender());
-                message.setSenderName(currentName); // Cache it in the object for this session
-            }
-
-            String displayName;
-            // If we have a name that's different from the number/address, show both
-            if (currentName != null && !currentName.equals(message.getSender())) {
-                displayName = currentName + " (" + message.getSender() + ")";
+                // Set temporary text
+                senderText.setText(message.getSender());
+                
+                // Fetch name in background
+                com.example.safeinbox.utils.TurboExecutor.getInstance().execute(() -> {
+                    String fetchedName = ContactUtils.getContactName(itemView.getContext(), message.getSender());
+                    message.setSenderName(fetchedName);
+                    
+                    String displayName;
+                    if (fetchedName != null && !fetchedName.equals(message.getSender())) {
+                        displayName = fetchedName + " (" + message.getSender() + ")";
+                    } else {
+                        displayName = message.getSender();
+                    }
+                    
+                    if (message.isBlocked()) {
+                        displayName = "🚫 [BLOCKED] " + displayName;
+                    }
+                    
+                    final String finalDisplay = displayName;
+                    itemView.post(() -> senderText.setText(finalDisplay));
+                });
             } else {
-                displayName = message.getSender();
+                String displayName;
+                if (!currentName.equals(message.getSender())) {
+                    displayName = currentName + " (" + message.getSender() + ")";
+                } else {
+                    displayName = message.getSender();
+                }
+                
+                if (message.isBlocked()) {
+                    displayName = "🚫 [BLOCKED] " + displayName;
+                }
+                senderText.setText(displayName);
             }
             
-            senderText.setText(displayName);
             bodyText.setText(message.getBody());
-
             dateText.setText(message.getFormattedDate());
         }
     }

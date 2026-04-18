@@ -5,33 +5,36 @@
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:fitsSystemWindows="true"
-    android:background="#FAFAFA">
+    android:background="@color/dark_background">
 
-    <!-- Header Bar -->
+    <!-- Header Bar with Red Gradient -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="56dp"
-        android:background="#D32F2F"
+        android:background="@drawable/bg_header_spam"
         android:gravity="center_vertical"
         android:paddingStart="8dp"
         android:paddingEnd="16dp"
         android:orientation="horizontal"
-        android:elevation="4dp">
+        android:elevation="6dp">
 
         <Button
             android:id="@+id/btn_back"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Back"
+            android:layout_height="36dp"
+            android:text="← Back"
             android:textColor="#FFFFFF"
-            android:backgroundTint="#607D8B"
-            android:textSize="12sp" />
+            android:backgroundTint="@color/btn_back"
+            android:textSize="12sp"
+            android:textAllCaps="false"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp" />
 
         <TextView
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="Spam Messages"
+            android:text="⚠ Spam Messages"
             android:textColor="#FFFFFF"
             android:textSize="20sp"
             android:textStyle="bold"
@@ -49,17 +52,20 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_margin="12dp"
-        app:cardCornerRadius="8dp"
-        app:cardElevation="2dp">
+        app:cardCornerRadius="12dp"
+        app:cardElevation="2dp"
+        app:cardBackgroundColor="@color/search_background">
 
         <EditText
             android:id="@+id/edit_search_spam"
             android:layout_width="match_parent"
             android:layout_height="48dp"
             android:background="@android:color/transparent"
-            android:drawableStart="@android:drawable/ic_menu_search"
+            android:drawableStart="@drawable/ic_search"
             android:drawablePadding="12dp"
-            android:hint="Search spam..."
+            android:hint="🔍  Search spam..."
+            android:textColor="@color/search_text"
+            android:textColorHint="@color/search_hint"
             android:paddingStart="12dp"
             android:paddingEnd="12dp"
             android:singleLine="true"
@@ -72,9 +78,9 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:gravity="center"
-        android:text="No spam messages"
+        android:text="🎉 No spam messages"
         android:textSize="16sp"
-        android:textColor="#9E9E9E"
+        android:textColor="@color/text_secondary"
         android:visibility="gone" />
 
     <!-- Swipe to refresh list -->

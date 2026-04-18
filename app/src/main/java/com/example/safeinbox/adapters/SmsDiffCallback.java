@@ -26,18 +26,17 @@ public class SmsDiffCallback extends DiffUtil.Callback {
 
     @Override
     public boolean areItemsTheSame(int oldItemPosition, int newItemPosition) {
-        // Since we use a unique constraint on (sender, body, date), these three define identity
+        // NUCLEAR DEDUPLICATION: We treat messages with the same sender and body 
+        // as the "same item" for the UI list, even if they have different database IDs.
         SmsMessage oldMsg = oldList.get(oldItemPosition);
         SmsMessage newMsg = newList.get(newItemPosition);
         
-        // If IDs are assigned, use IDs. Otherwise use content identity.
-        if (oldMsg.getId() != 0 && newMsg.getId() != 0) {
-            return oldMsg.getId() == newMsg.getId();
-        }
-        
-        return oldMsg.getDate() == newMsg.getDate() &&
-               oldMsg.getSender().equals(newMsg.getSender()) &&
-                oldMsg.getBody().equals(newMsg.getBody());
+        String oldSender = oldMsg.getSender() != null ? oldMsg.getSender().trim() : "";
+        String newSender = newMsg.getSender() != null ? newMsg.getSender().trim() : "";
+        String oldBody = oldMsg.getBody() != null ? oldMsg.getBody().trim().toLowerCase() : "";
+        String newBody = newMsg.getBody() != null ? newMsg.getBody().trim().toLowerCase() : "";
+
+        return oldSender.equals(newSender) && oldBody.equals(newBody);
     }
 
     @Override

@@ -9,45 +9,78 @@ import com.example.safeinbox.database.SpamDao
 import com.example.safeinbox.detection.SpamDetector
 import com.example.safeinbox.models.SmsMessage
 import com.example.safeinbox.utils.ContactUtils
+import com.example.safeinbox.utils.TurboExecutor
 
 class SmsReceiver : BroadcastReceiver() {
 
+    companion object {
+        private const val TAG = "SmsReceiver"
+    }
+
     override fun onReceive(context: Context, intent: Intent) {
-        val action = intent.action
-        Log.d("SafeInbox", "Broadcast received with action: $action")
-        
-        if (action == Telephony.Sms.Intents.SMS_RECEIVED_ACTION || 
-            action == "android.provider.Telephony.SMS_RECEIVED") {
-            
-            val messages = Telephony.Sms.Intents.getMessagesFromIntent(intent)
-            if (messages != null) {
-                val detector = SpamDetector(context)
-                val dao = SpamDao(context)
+        try {
+            val action = intent.action
+            Log.d(TAG, "Broadcast received: $action")
 
-                for (message in messages) {
-                    val sender = message.displayOriginatingAddress ?: "Unknown"
-                    val body = message.displayMessageBody ?: ""
-                    val timestamp = message.timestampMillis
-                    
-                    Log.d("SafeInbox", "SMS intercepted! From: $sender")
-                    
-                    // Classify the message
-                    val isSpam = detector.isSpam(sender, body)
-                    
-                    // Lookup name
-                    val contactName = ContactUtils.getContactName(context, sender)
+            if (action == Telephony.Sms.Intents.SMS_RECEIVED_ACTION ||
+                action == "android.provider.Telephony.SMS_RECEIVED") {
 
-                    // Save to database
-                    val smsRecord = SmsMessage(sender, body, timestamp)
-                    smsRecord.senderName = contactName
-                    smsRecord.isSpam = isSpam
-                    dao.insertMessage(smsRecord)
-                    
-                    Log.d("SafeInbox", "SMS stored. Spam detected: $isSpam")
+                val messages = Telephony.Sms.Intents.getMessagesFromIntent(intent)
+                if (messages.isNullOrEmpty()) {
+                    Log.w(TAG, "No SMS messages in intent")
+                    return
                 }
-            } else {
-                Log.e("SafeInbox", "SMS messages were null in intent")
+
+                // Process on a background thread to avoid blocking the broadcast
+                TurboExecutor.getInstance().execute {
+                    try {
+                        val detector = SpamDetector.getInstance(context)
+                        val dao = SpamDao(context)
+                        val processedMessages = mutableListOf<SmsMessage>()
+
+                        for (message in messages) {
+                            try {
+                                val sender = message.displayOriginatingAddress ?: "Unknown"
+                                val body = message.displayMessageBody ?: ""
+                                val timestamp = message.timestampMillis
+
+                                if (body.isBlank()) continue
+
+                                val bodyTrim = body.trim()
+                                // Advanced Dedup: Check if this message was already processed in the last 60s
+                                if (dao.checkIfMessageExistsRecently(sender, bodyTrim)) {
+                                    continue
+                                }
+
+                                val isSpam = detector.isSpam(sender, bodyTrim)
+                                val contactName = ContactUtils.getContactName(context, sender)
+
+                                val smsRecord = SmsMessage(sender, bodyTrim, timestamp)
+                                smsRecord.senderName = contactName
+                                smsRecord.isSpam = isSpam
+                                smsRecord.isBlocked = dao.isBlockedNumber(sender)
+                                
+                                processedMessages.add(smsRecord)
+                                
+                                // Phase 3: Increment sender score based on classification
+                                dao.incrementSenderScore(sender, isSpam)
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Error processing individual SMS", e)
+                            }
+                        }
+                        
+                        // NUCLEAR SPEED: Batch insert all messages in one transaction
+                        if (processedMessages.isNotEmpty()) {
+                            dao.insertMessagesBatch(processedMessages)
+                            Log.d(TAG, "Batch stored ${processedMessages.size} messages")
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error in SMS processing thread", e)
+                    }
+                }
             }
+        } catch (e: Exception) {
+            Log.e(TAG, "onReceive error", e)
         }
     }
 }

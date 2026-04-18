@@ -9,6 +9,7 @@ import com.example.safeinbox.database.SpamDao
 import com.example.safeinbox.detection.SpamDetector
 import com.example.safeinbox.models.SmsMessage
 import com.example.safeinbox.utils.ContactUtils
+import com.example.safeinbox.utils.TurboExecutor
 
 class MmsReceiver : BroadcastReceiver() {
 
@@ -17,10 +18,14 @@ class MmsReceiver : BroadcastReceiver() {
             Log.d("MmsReceiver", "MMS received!")
             
             // Allow a small delay for the system to process and save the MMS to provider
-            Thread {
-                Thread.sleep(2000) 
-                fetchAndProcessLatestMms(context)
-            }.start()
+            TurboExecutor.getInstance().execute {
+                try {
+                    Thread.sleep(2000) 
+                    fetchAndProcessLatestMms(context)
+                } catch (e: Exception) {
+                    Log.e("MmsReceiver", "Error in background fetch", e)
+                }
+            }
         }
     }
 
@@ -28,32 +33,45 @@ class MmsReceiver : BroadcastReceiver() {
         val uri = Uri.parse("content://mms/inbox")
         val cursor = context.contentResolver.query(uri, null, null, null, "date DESC LIMIT 1")
 
-        if (cursor != null && cursor.moveToFirst()) {
-            try {
-                val mmsId = cursor.getLong(cursor.getColumnIndexOrThrow("_id"))
-                val date = cursor.getLong(cursor.getColumnIndexOrThrow("date")) * 1000
+        cursor?.use {
+            if (it.moveToFirst()) {
+                try {
+                    val mmsId = it.getLong(it.getColumnIndexOrThrow("_id"))
+                    val date = it.getLong(it.getColumnIndexOrThrow("date")) * 1000
 
-                val body = getMmsText(context, mmsId)
-                val sender = getMmsAddress(context, mmsId)
+                    val body = getMmsText(context, mmsId)
+                    val sender = getMmsAddress(context, mmsId)
 
-                if (!body.isNullOrEmpty()) {
-                    val detector = SpamDetector(context)
-                    val dao = SpamDao(context)
-                    
-                    val isSpam = detector.isSpam(sender ?: "Unknown", body)
-                    val contactName = ContactUtils.getContactName(context, sender)
+                    if (!body.isNullOrEmpty()) {
+                        val bodyTrim = body.trim()
+                        val detector = SpamDetector.getInstance(context)
+                        val dao = SpamDao(context)
+                        
+                        val finalSender = sender ?: "Unknown"
+                        // Advanced Dedup: Check if this message was already processed in the last 60s
+                        if (dao.checkIfMessageExistsRecently(finalSender, bodyTrim)) {
+                            Log.d("MmsReceiver", "Duplicate MMS detected, skipping")
+                            return
+                        }
 
-                    val mmsRecord = SmsMessage(sender ?: "Unknown", body, date)
-                    mmsRecord.senderName = contactName
-                    mmsRecord.isSpam = isSpam
-                    dao.insertMessage(mmsRecord)
-                    
-                    Log.d("MmsReceiver", "MMS stored from $sender. Spam: $isSpam")
+                        val isBlocked = dao.isBlockedNumber(finalSender)
+                        val isSpam = isBlocked || detector.isSpam(finalSender, bodyTrim)
+                        val contactName = ContactUtils.getContactName(context, finalSender)
+
+                        val mmsRecord = SmsMessage(finalSender, bodyTrim, date)
+                        mmsRecord.senderName = contactName
+                        mmsRecord.isSpam = isSpam
+                        mmsRecord.isBlocked = isBlocked
+                        dao.insertMessage(mmsRecord)
+                        
+                        // Phase 3: Increment sender score based on classification
+                        dao.incrementSenderScore(finalSender, isSpam)
+
+                        Log.d("MmsReceiver", "MMS stored from $finalSender. Spam: $isSpam | Blocked: $isBlocked")
+                    }
+                } catch (e: Exception) {
+                    Log.e("MmsReceiver", "Error processing MMS", e)
                 }
-            } catch (e: Exception) {
-                Log.e("MmsReceiver", "Error processing MMS", e)
-            } finally {
-                cursor.close()
             }
         }
     }
@@ -65,11 +83,43 @@ class MmsReceiver : BroadcastReceiver() {
 
         cursor?.use {
             while (it.moveToNext()) {
-                val ct = it.getString(it.getColumnIndexOrThrow("ct"))
-                if (ct == "text/plain") {
-                    sb.append(it.getString(it.getColumnIndexOrThrow("text")))
+                try {
+                    val ct = it.getString(it.getColumnIndexOrThrow("ct"))
+                    if (ct == "text/plain") {
+                        val data = it.getString(it.getColumnIndexOrThrow("_data"))
+                        val text = it.getString(it.getColumnIndexOrThrow("text"))
+                        
+                        if (text != null) {
+                            sb.append(text)
+                        } else if (data != null) {
+                            // Fallback: Read from stream if 'text' column is null
+                            sb.append(readMmsPartStream(context, it))
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e("MmsReceiver", "Error reading MMS part", e)
                 }
             }
+        }
+        return sb.toString()
+    }
+
+    private fun readMmsPartStream(context: Context, cursor: android.database.Cursor): String {
+        val partId = cursor.getString(cursor.getColumnIndexOrThrow("_id"))
+        val partUri = Uri.parse("content://mms/part/$partId")
+        val sb = StringBuilder()
+        try {
+            context.contentResolver.openInputStream(partUri)?.use { isr ->
+                java.io.BufferedReader(java.io.InputStreamReader(isr, "UTF-8")).use { reader ->
+                    var line: String? = reader.readLine()
+                    while (line != null) {
+                        sb.append(line)
+                        line = reader.readLine()
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("MmsReceiver", "Error reading MMS stream", e)
         }
         return sb.toString()
     }

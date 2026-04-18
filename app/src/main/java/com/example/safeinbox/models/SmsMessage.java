@@ -12,6 +12,7 @@ public class SmsMessage {
     private String body;
     private long date;
     private boolean isSpam;
+    private boolean isBlocked;
 
     public SmsMessage() {
     }
@@ -21,15 +22,17 @@ public class SmsMessage {
         this.body = body;
         this.date = date;
         this.isSpam = false;
+        this.isBlocked = false;
     }
 
-    public SmsMessage(long id, String sender, String senderName, String body, long date, boolean isSpam) {
+    public SmsMessage(long id, String sender, String senderName, String body, long date, boolean isSpam, boolean isBlocked) {
         this.id = id;
         this.sender = sender;
         this.senderName = senderName;
         this.body = body;
         this.date = date;
         this.isSpam = isSpam;
+        this.isBlocked = isBlocked;
     }
 
     public String getSenderName() {
@@ -80,9 +83,30 @@ public class SmsMessage {
         isSpam = spam;
     }
 
+    public boolean isBlocked() {
+        return isBlocked;
+    }
+
+    public void setBlocked(boolean blocked) {
+        isBlocked = blocked;
+    }
+
     // Helper for UI formatting
     public String getFormattedDate() {
         SimpleDateFormat sdf = new SimpleDateFormat("MMM dd, hh:mm a", Locale.getDefault());
         return sdf.format(new Date(date));
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        SmsMessage that = (SmsMessage) o;
+        return id == that.id;
+    }
+
+    @Override
+    public int hashCode() {
+        return (int) (id ^ (id >>> 32));
     }
 }

@@ -26,10 +26,12 @@ public class MLClassifier {
     public MLClassifier(android.content.Context context) {
         this.mlDao = new MLDao(context);
         
-        // Only load if not already in memory
-        if (!isLoaded) {
-            loadFromPersistence();
-            isLoaded = true;
+        // Single-check locking for static initialization
+        synchronized (MLClassifier.class) {
+            if (!isLoaded) {
+                loadFromPersistence();
+                isLoaded = true;
+            }
         }
     }
 
@@ -117,34 +119,39 @@ public class MLClassifier {
             return;
         }
 
+        boolean vocabChanged = false;
         if (isSpam) {
             totalSpamMessages++;
             for (String word : words) {
+                if (!spamWordCounts.containsKey(word) && !hamWordCounts.containsKey(word)) {
+                    vocabChanged = true;
+                }
                 spamWordCounts.put(word, spamWordCounts.getOrDefault(word, 0) + 1);
                 spamTotalWords++;
             }
         } else {
             totalHamMessages++;
             for (String word : words) {
+                if (!spamWordCounts.containsKey(word) && !hamWordCounts.containsKey(word)) {
+                    vocabChanged = true;
+                }
                 hamWordCounts.put(word, hamWordCounts.getOrDefault(word, 0) + 1);
                 hamTotalWords++;
             }
         }
 
-        updateVocabularySize();
+        if (vocabChanged) {
+            updateVocabularySize();
+        }
     }
 
-    public boolean classify(String[] words) {
-        if (words == null || words.length == 0) {
-            return false;
-        }
+    public double getSpamProbability(String[] words) {
+        if (words == null || words.length == 0) return 0.0;
 
         int totalMessages = totalSpamMessages + totalHamMessages;
-        if (totalMessages == 0) {
-            return false;
-        }
+        if (totalMessages == 0) return 0.0;
 
-        // Prior probabilities (log space to prevent underflow)
+        // Prior probabilities
         double logProbSpam = Math.log((double) totalSpamMessages / totalMessages);
         double logProbHam = Math.log((double) totalHamMessages / totalMessages);
 
@@ -152,18 +159,24 @@ public class MLClassifier {
             int spamCount = spamWordCounts.getOrDefault(word, 0);
             int hamCount = hamWordCounts.getOrDefault(word, 0);
 
-            // Skip completely unknown words. With imbalanced datasets, unknown words 
-            // mathematically favor the class with fewer total words.
-            if (spamCount == 0 && hamCount == 0) {
-                continue;
-            }
+            if (spamCount == 0 && hamCount == 0) continue;
 
-            // Laplace smoothing: P(word|class) = (count + 1) / (totalWords + vocabSize)
             logProbSpam += Math.log((double) (spamCount + 1) / (spamTotalWords + vocabularySize));
             logProbHam += Math.log((double) (hamCount + 1) / (hamTotalWords + vocabularySize));
         }
 
-        // Default to Ham if the confidence isn't strictly higher for Spam
-        return logProbSpam > logProbHam && (logProbSpam - logProbHam > 0.5);
+        // Bayes Theorem: P(Spam|Words) = P(Words|Spam)P(Spam) / [P(Words|Spam)P(Spam) + P(Words|Ham)P(Ham)]
+        // Using log space: P = e(logSpam) / [e(logSpam) + e(logHam)]
+        // To avoid overflow: P = 1 / [1 + e(logHam - logSpam)]
+        double exponent = logProbHam - logProbSpam;
+        if (exponent > 20) return 0.0;
+        if (exponent < -20) return 1.0;
+        
+        return 1.0 / (1.0 + Math.exp(exponent));
+    }
+
+    public boolean classify(String[] words) {
+        double prob = getSpamProbability(words);
+        return prob > 0.5;
     }
 }

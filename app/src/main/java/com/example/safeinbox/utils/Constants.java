@@ -4,7 +4,7 @@ public class Constants {
 
     // Database
     public static final String DB_NAME = "safeinbox.db";
-    public static final int DB_VERSION = 5;
+    public static final int DB_VERSION = 9;
 
     // Table: messages
     public static final String TABLE_MESSAGES = "messages";
@@ -14,6 +14,8 @@ public class Constants {
     public static final String COL_BODY = "body";
     public static final String COL_DATE = "date";
     public static final String COL_IS_SPAM = "is_spam";
+    public static final String COL_IS_BLOCKED = "is_blocked";
+    public static final String COL_DEDUP_ID = "dedup_id";
 
     // Table: spam_numbers
     public static final String TABLE_SPAM_NUMBERS = "spam_numbers";
@@ -35,6 +37,23 @@ public class Constants {
     public static final String COL_KEY = "stat_key";
     public static final String COL_VALUE = "stat_value";
 
+    // Table: sender_scores
+    public static final String TABLE_SENDER_SCORES = "sender_scores";
+    public static final String COL_SENDER_KEY = "sender_key";
+    public static final String COL_SPAM_HITS = "spam_hits";
+    public static final String COL_HAM_HITS = "ham_hits";
+    public static final String COL_USER_SPAM_REPORTS = "user_spam_reports";
+    public static final String COL_USER_HAM_REPORTS = "user_ham_reports";
+    public static final String COL_LAST_UPDATED = "last_updated";
+
+    // Score weights
+    public static final int WEIGHT_KEYWORD = 40;
+    public static final int WEIGHT_ML = 30;
+    public static final int WEIGHT_HISTORY = 20;
+    public static final int WEIGHT_FEEDBACK = 15;
+    public static final int WEIGHT_CONTACT = 25;
+    public static final int WEIGHT_SAFE_HISTORY = 20;
+
     public static final String KEY_TOTAL_SPAM_MSGS = "total_spam_messages";
     public static final String KEY_TOTAL_HAM_MSGS = "total_ham_messages";
     public static final String KEY_SPAM_TOTAL_WORDS = "spam_total_words";
@@ -42,7 +61,7 @@ public class Constants {
 
     // Feedback labels
     public static final String LABEL_SPAM = "spam";
-    public static final String LABEL_NOT_SPAM = "not_spam";
+    public static final String LABEL_HAM = "ham";
 
     // Permission request code
     public static final int PERMISSION_REQUEST_CODE = 100;
