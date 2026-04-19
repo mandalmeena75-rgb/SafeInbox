@@ -79,7 +79,15 @@ public class ContactUtils {
 
     public static String normalizeSender(String sender) {
         if (sender == null) return "";
-        // Remove spaces, dashes, parens and keep leading +
-        return sender.replaceAll("[^0-9+]", "");
+        // TURBO MODE: Use fast char loop instead of regex replaceAll
+        int len = sender.length();
+        StringBuilder sb = new StringBuilder(len);
+        for (int i = 0; i < len; i++) {
+            char c = sender.charAt(i);
+            if ((c >= '0' && c <= '9') || c == '+') {
+                sb.append(c);
+            }
+        }
+        return sb.toString();
     }
 }

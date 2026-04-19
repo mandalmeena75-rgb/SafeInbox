@@ -52,11 +52,17 @@ public class SpamScoreEngine {
             result.feedbackScore = Math.min(userReports * 5, Constants.WEIGHT_FEEDBACK);
         }
 
-        // 5. Contact Verification Layer (Trust +25)
+        // 5. Contact Verification Layer (Trust +50)
         String contactName = ContactUtils.getContactName(context, sender);
         if (contactName != null) {
-            // Early exit option for Contacts (Safe) can be added here
             result.contactScore = Constants.WEIGHT_CONTACT;
+            
+            // CONTACT IMMUNITY: If they are a verified contact AND don't send a link,
+            // they are almost impossible to flag as spam (Safe by default).
+            if (!keywordFilter.hasSuspiciousLink(body)) {
+                result.safeHistoryScore += 10; // Extra trust bonus for safe content
+                result.reason = "Trusted contact verified";
+            }
         }
 
         // 6. Safe History Layer (Trust +20)

@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <menu xmlns:android="http://schemas.android.com/apk/res/android">
     <item
+        android:id="@+id/action_mark_spam"
+        android:title="Mark as Spam" />
+    <item
         android:id="@+id/action_block"
         android:title="Block and report spam" />
     <item
@@ -10,11 +13,17 @@
         android:id="@+id/action_delete"
         android:title="Delete" />
     <item
+        android:id="@+id/action_unblock"
+        android:title="Unblock Sender" />
+    <item
         android:id="@+id/action_details"
         android:title="Details" />
     <item
-        android:id="@+id/action_archives"
-        android:title="Archives" />
+        android:id="@+id/action_archive"
+        android:title="Archive" />
+    <item
+        android:id="@+id/action_unarchive"
+        android:title="Unarchive" />
     <item
         android:id="@+id/action_help"
         android:title="Help and feedback" />

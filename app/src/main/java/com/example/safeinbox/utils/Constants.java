@@ -4,7 +4,7 @@ public class Constants {
 
     // Database
     public static final String DB_NAME = "safeinbox.db";
-    public static final int DB_VERSION = 9;
+    public static final int DB_VERSION = 10;
 
     // Table: messages
     public static final String TABLE_MESSAGES = "messages";
@@ -20,6 +20,9 @@ public class Constants {
     // Table: spam_numbers
     public static final String TABLE_SPAM_NUMBERS = "spam_numbers";
     public static final String COL_NUMBER = "number";
+
+    // Table: deleted_messages (Blacklist to prevent re-syncing deleted items)
+    public static final String TABLE_DELETED_MESSAGES = "deleted_messages";
 
     // Table: feedback
     public static final String TABLE_FEEDBACK = "feedback";
@@ -51,7 +54,7 @@ public class Constants {
     public static final int WEIGHT_ML = 30;
     public static final int WEIGHT_HISTORY = 20;
     public static final int WEIGHT_FEEDBACK = 15;
-    public static final int WEIGHT_CONTACT = 25;
+    public static final int WEIGHT_CONTACT = 50;
     public static final int WEIGHT_SAFE_HISTORY = 20;
 
     public static final String KEY_TOTAL_SPAM_MSGS = "total_spam_messages";
@@ -65,4 +68,9 @@ public class Constants {
 
     // Permission request code
     public static final int PERMISSION_REQUEST_CODE = 100;
+
+    // Preferences
+    public static final String PREFS_NAME = "SafeInboxPrefs";
+    public static final String KEY_ARCHIVED_IDS = "archived_message_ids";
+    public static final String KEY_ARCHIVED_DEDUP_IDS = "archived_dedup_ids";
 }

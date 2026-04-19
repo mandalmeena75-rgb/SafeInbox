@@ -13,6 +13,7 @@ public class SmsMessage {
     private long date;
     private boolean isSpam;
     private boolean isBlocked;
+    private String dedupId;
 
     public SmsMessage() {
     }
@@ -26,6 +27,10 @@ public class SmsMessage {
     }
 
     public SmsMessage(long id, String sender, String senderName, String body, long date, boolean isSpam, boolean isBlocked) {
+        this(id, sender, senderName, body, date, isSpam, isBlocked, null);
+    }
+
+    public SmsMessage(long id, String sender, String senderName, String body, long date, boolean isSpam, boolean isBlocked, String dedupId) {
         this.id = id;
         this.sender = sender;
         this.senderName = senderName;
@@ -33,6 +38,15 @@ public class SmsMessage {
         this.date = date;
         this.isSpam = isSpam;
         this.isBlocked = isBlocked;
+        this.dedupId = dedupId;
+    }
+
+    public String getDedupId() {
+        return dedupId;
+    }
+
+    public void setDedupId(String dedupId) {
+        this.dedupId = dedupId;
     }
 
     public String getSenderName() {

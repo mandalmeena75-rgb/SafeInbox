@@ -53,4 +53,16 @@
         android:textColor="@color/primary_light_purple"
         app:strokeColor="@color/primary_light_purple" />
 
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btn_view_archive"
+        style="@style/SafeInbox.Button.Ghost"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="View Archive Vault"
+        android:textColor="@color/text_grey"
+        app:strokeColor="@color/button_border_grey"
+        app:icon="@android:drawable/ic_menu_save"
+        app:iconTint="@color/text_grey" />
+
 </LinearLayout>

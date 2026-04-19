@@ -11,61 +11,53 @@
         android:layout_width="match_parent"
         android:layout_height="56dp">
 
-        <!-- Header Bar with Gradient (Standard) -->
+        <!-- Header Bar with Grey Gradient -->
         <LinearLayout
-            android:id="@+id/header_standard"
+            android:id="@+id/header_standard_archive"
             android:layout_width="match_parent"
             android:layout_height="56dp"
-            android:background="@drawable/bg_header_inbox"
+            android:background="@drawable/bg_header_spam"
+            android:backgroundTint="@color/button_border_grey"
             android:gravity="center_vertical"
-            android:paddingStart="16dp"
-            android:paddingEnd="8dp"
+            android:paddingStart="8dp"
+            android:paddingEnd="16dp"
             android:orientation="horizontal"
             android:elevation="6dp">
 
-            <TextView
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="📬 Inbox"
-                android:textColor="#FFFFFF"
-                android:textSize="20sp"
-                android:textStyle="bold" />
-
             <Button
-                android:id="@+id/btn_home"
+                android:id="@+id/btn_back"
                 android:layout_width="wrap_content"
                 android:layout_height="36dp"
-                android:text="🏠"
+                android:text="← Back"
                 android:textColor="#FFFFFF"
-                android:backgroundTint="@color/primary_deep_purple"
-                android:textSize="16sp"
-                android:textAllCaps="false"
-                android:minWidth="40dp"
-                android:paddingStart="8dp"
-                android:paddingEnd="8dp"
-                android:layout_marginEnd="4dp" />
-
-            <Button
-                android:id="@+id/btn_view_spam"
-                android:layout_width="wrap_content"
-                android:layout_height="36dp"
-                android:text="⚠ View Spam"
-                android:textColor="#FFFFFF"
-                android:backgroundTint="@color/btn_spam"
+                android:backgroundTint="@color/btn_back"
                 android:textSize="12sp"
                 android:textAllCaps="false"
                 android:paddingStart="12dp"
                 android:paddingEnd="12dp" />
 
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="📦 Archive Vault"
+                android:textColor="#FFFFFF"
+                android:textSize="20sp"
+                android:textStyle="bold"
+                android:gravity="center" />
+
+            <View
+                android:layout_width="48dp"
+                android:layout_height="48dp" />
+
         </LinearLayout>
 
-        <!-- Selection Mode Toolbar -->
+        <!-- Selection Mode Toolbar (Simplified) -->
         <LinearLayout
-            android:id="@+id/header_selection"
+            android:id="@+id/header_selection_archive"
             android:layout_width="match_parent"
             android:layout_height="56dp"
-            android:background="@color/primary_deep_purple"
+            android:background="@color/button_border_grey"
             android:visibility="gone"
             android:gravity="center_vertical"
             android:paddingStart="8dp"
@@ -74,7 +66,7 @@
             android:elevation="6dp">
 
             <ImageButton
-                android:id="@+id/btn_cancel_selection"
+                android:id="@+id/btn_cancel_selection_archive"
                 android:layout_width="48sp"
                 android:layout_height="48sp"
                 android:background="?attr/selectableItemBackgroundBorderless"
@@ -83,7 +75,7 @@
                 android:tint="#FFFFFF" />
 
             <TextView
-                android:id="@+id/text_selection_count"
+                android:id="@+id/text_selection_count_archive"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
@@ -94,22 +86,22 @@
                 android:layout_marginStart="8dp" />
 
             <ImageButton
-                android:id="@+id/btn_batch_archive"
+                android:id="@+id/btn_batch_unarchive"
                 android:layout_width="48sp"
                 android:layout_height="48sp"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:src="@drawable/ic_fingerprint"
-                android:contentDescription="Archive All"
+                android:contentDescription="Unarchive All"
                 android:tint="#FFFFFF" />
 
             <ImageButton
-                android:id="@+id/btn_batch_delete"
+                android:id="@+id/btn_batch_delete_archive"
                 android:layout_width="48sp"
                 android:layout_height="48sp"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:src="@drawable/ic_delete"
-                android:contentDescription="Delete All"
-                android:tint="#FF5252" />
+                android:contentDescription="Delete All Permanent"
+                android:tint="#FFFFFF" />
 
         </LinearLayout>
     </FrameLayout>
@@ -124,13 +116,13 @@
         app:cardBackgroundColor="@color/search_background">
 
         <EditText
-            android:id="@+id/edit_search"
+            android:id="@+id/edit_search_archive"
             android:layout_width="match_parent"
             android:layout_height="48dp"
             android:background="@android:color/transparent"
             android:drawableStart="@drawable/ic_search"
             android:drawablePadding="12dp"
-            android:hint="🔍  Search messages..."
+            android:hint="🔍  Search archives..."
             android:textColor="@color/search_text"
             android:textColorHint="@color/search_hint"
             android:paddingStart="12dp"
@@ -141,23 +133,23 @@
 
     <!-- Empty state -->
     <TextView
-        android:id="@+id/text_empty"
+        android:id="@+id/text_empty_archive"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:gravity="center"
-        android:text="📭 No messages found"
+        android:text="📦 Archive Vault is empty"
         android:textSize="16sp"
         android:textColor="@color/text_secondary"
         android:visibility="gone" />
 
     <!-- Swipe to refresh list -->
     <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
-        android:id="@+id/swipe_refresh"
+        android:id="@+id/swipe_refresh_archive"
         android:layout_width="match_parent"
         android:layout_height="match_parent">
 
         <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/recycler_inbox"
+            android:id="@+id/recycler_archive"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:padding="4dp"

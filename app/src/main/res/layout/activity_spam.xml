@@ -7,45 +7,123 @@
     android:fitsSystemWindows="true"
     android:background="@color/dark_background">
 
-    <!-- Header Bar with Red Gradient -->
-    <LinearLayout
+    <FrameLayout
         android:layout_width="match_parent"
-        android:layout_height="56dp"
-        android:background="@drawable/bg_header_spam"
-        android:gravity="center_vertical"
-        android:paddingStart="8dp"
-        android:paddingEnd="16dp"
-        android:orientation="horizontal"
-        android:elevation="6dp">
+        android:layout_height="56dp">
 
-        <Button
-            android:id="@+id/btn_back"
-            android:layout_width="wrap_content"
-            android:layout_height="36dp"
-            android:text="← Back"
-            android:textColor="#FFFFFF"
-            android:backgroundTint="@color/btn_back"
-            android:textSize="12sp"
-            android:textAllCaps="false"
-            android:paddingStart="12dp"
-            android:paddingEnd="12dp" />
+        <!-- Header Bar with Red Gradient (Standard) -->
+        <LinearLayout
+            android:id="@+id/header_standard_spam"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:background="@drawable/bg_header_spam"
+            android:gravity="center_vertical"
+            android:paddingStart="8dp"
+            android:paddingEnd="16dp"
+            android:orientation="horizontal"
+            android:elevation="6dp">
 
-        <TextView
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="⚠ Spam Messages"
-            android:textColor="#FFFFFF"
-            android:textSize="20sp"
-            android:textStyle="bold"
-            android:gravity="center" />
+            <Button
+                android:id="@+id/btn_back"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:text="← Back"
+                android:textColor="#FFFFFF"
+                android:backgroundTint="@color/btn_back"
+                android:textSize="12sp"
+                android:textAllCaps="false"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp" />
 
-        <!-- Spacer to balance the back button -->
-        <View
-            android:layout_width="64dp"
-            android:layout_height="1dp" />
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="⚠ Spam Messages"
+                android:textColor="#FFFFFF"
+                android:textSize="20sp"
+                android:textStyle="bold"
+                android:gravity="center" />
 
-    </LinearLayout>
+            <View
+                android:layout_width="4dp"
+                android:layout_height="1dp" />
+
+
+            <ImageButton
+                android:id="@+id/btn_sync"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_sync"
+                android:contentDescription="Sync Global Blacklist"
+                android:tint="#FFFFFF"
+                android:padding="12dp" />
+
+        </LinearLayout>
+
+        <!-- Selection Mode Toolbar -->
+        <LinearLayout
+            android:id="@+id/header_selection_spam"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:background="@color/btn_spam"
+            android:visibility="gone"
+            android:gravity="center_vertical"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:orientation="horizontal"
+            android:elevation="6dp">
+
+            <ImageButton
+                android:id="@+id/btn_cancel_selection_spam"
+                android:layout_width="48sp"
+                android:layout_height="48sp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_sync"
+                android:rotation="45"
+                android:tint="#FFFFFF" />
+
+            <TextView
+                android:id="@+id/text_selection_count_spam"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="1 selected"
+                android:textColor="#FFFFFF"
+                android:textSize="18sp"
+                android:textStyle="bold"
+                android:layout_marginStart="8dp" />
+
+            <ImageButton
+                android:id="@+id/btn_batch_restore"
+                android:layout_width="48sp"
+                android:layout_height="48sp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_fingerprint"
+                android:contentDescription="Restore All"
+                android:tint="#FFFFFF" />
+
+            <ImageButton
+                android:id="@+id/btn_batch_archive_spam"
+                android:layout_width="48sp"
+                android:layout_height="48sp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@android:drawable/ic_menu_save"
+                android:contentDescription="Archive Selection"
+                android:tint="#FFFFFF" />
+
+            <ImageButton
+                android:id="@+id/btn_batch_delete_spam"
+                android:layout_width="48sp"
+                android:layout_height="48sp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_delete"
+                android:contentDescription="Delete All Permanent"
+                android:tint="#FFFFFF" />
+
+        </LinearLayout>
+    </FrameLayout>
 
     <!-- Search Bar -->
     <androidx.cardview.widget.CardView

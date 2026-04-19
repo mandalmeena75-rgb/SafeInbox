@@ -17,6 +17,7 @@ class MmsReceiver : BroadcastReceiver() {
         if (intent.action == "android.provider.Telephony.WAP_PUSH_DELIVER_ACTION") {
             Log.d("MmsReceiver", "MMS received!")
             
+            val pendingResult = goAsync()
             // Allow a small delay for the system to process and save the MMS to provider
             TurboExecutor.getInstance().execute {
                 try {
@@ -24,6 +25,8 @@ class MmsReceiver : BroadcastReceiver() {
                     fetchAndProcessLatestMms(context)
                 } catch (e: Exception) {
                     Log.e("MmsReceiver", "Error in background fetch", e)
+                } finally {
+                    pendingResult?.finish()
                 }
             }
         }

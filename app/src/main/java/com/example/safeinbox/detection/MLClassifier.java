@@ -49,12 +49,12 @@ public class MLClassifier {
         } else {
             // If DB is empty, load defaults and save them
             loadDefaultTrainingData();
-            saveToPersistence();
+            saveToPersistence(null); // Save all for initial load
         }
     }
 
-    public void saveToPersistence() {
-        mlDao.saveWordCounts(spamWordCounts, hamWordCounts);
+    public void saveToPersistence(String[] wordsToSave) {
+        mlDao.saveWordCounts(spamWordCounts, hamWordCounts, wordsToSave);
         mlDao.saveGlobalStats(totalSpamMessages, totalHamMessages, spamTotalWords, hamTotalWords);
     }
 
@@ -111,7 +111,7 @@ public class MLClassifier {
             train(processor.process(ham), false);
         }
 
-        saveToPersistence();
+        saveToPersistence(null);
     }
 
     public void train(String[] words, boolean isSpam) {
@@ -143,6 +143,8 @@ public class MLClassifier {
         if (vocabChanged) {
             updateVocabularySize();
         }
+        
+        saveToPersistence(words);
     }
 
     public double getSpamProbability(String[] words) {

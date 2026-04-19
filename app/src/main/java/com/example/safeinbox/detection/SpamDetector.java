@@ -38,6 +38,9 @@ public class SpamDetector {
     public void trainFromFeedback(String body, boolean isSpam) {
         String[] words = textProcessor.process(body);
         mlClassifier.train(words, isSpam);
-        mlClassifier.saveToPersistence();
+    }
+
+    public MLClassifier getClassifier() {
+        return mlClassifier;
     }
 }

@@ -18,27 +18,44 @@ public class MLDao {
         this.dbHelper = DBHelper.getInstance(context);
     }
 
-    public void saveWordCounts(Map<String, Integer> spamCounts, Map<String, Integer> hamCounts) {
+    /**
+     * Saves word counts to the database.
+     * @param spamCounts The full spam word count map from memory.
+     * @param hamCounts The full ham word count map from memory.
+     * @param wordsToSave Optional array of specific words to update. If null, saves the entire vocabulary.
+     */
+    public void saveWordCounts(Map<String, Integer> spamCounts, Map<String, Integer> hamCounts, String[] wordsToSave) {
         SQLiteDatabase db = dbHelper.getWritableDatabase();
         db.beginTransaction();
         try {
-            // For simplicity, we just clear and re-insert, or upsert.
-            // On a large vocab, upsert is better.
-            for (String word : spamCounts.keySet()) {
-                ContentValues values = new ContentValues();
-                values.put(Constants.COL_WORD, word);
-                values.put(Constants.COL_SPAM_COUNT, spamCounts.get(word));
-                values.put(Constants.COL_HAM_COUNT, hamCounts.getOrDefault(word, 0));
-                db.insertWithOnConflict(Constants.TABLE_WORD_COUNTS, null, values, SQLiteDatabase.CONFLICT_REPLACE);
-            }
-            // Ensure words only in hamCounts are also saved
-            for (String word : hamCounts.keySet()) {
-                if (!spamCounts.containsKey(word)) {
+            if (wordsToSave != null) {
+                // Partial update: Only save words that were part of the recent training
+                java.util.Set<String> uniqueWords = new java.util.HashSet<>(java.util.Arrays.asList(wordsToSave));
+                for (String word : uniqueWords) {
+                    if (word == null || word.isEmpty()) continue;
                     ContentValues values = new ContentValues();
                     values.put(Constants.COL_WORD, word);
-                    values.put(Constants.COL_SPAM_COUNT, 0);
-                    values.put(Constants.COL_HAM_COUNT, hamCounts.get(word));
+                    values.put(Constants.COL_SPAM_COUNT, spamCounts.getOrDefault(word, 0));
+                    values.put(Constants.COL_HAM_COUNT, hamCounts.getOrDefault(word, 0));
                     db.insertWithOnConflict(Constants.TABLE_WORD_COUNTS, null, values, SQLiteDatabase.CONFLICT_REPLACE);
+                }
+            } else {
+                // Full update: Loop through everything (rarely used now)
+                for (String word : spamCounts.keySet()) {
+                    ContentValues values = new ContentValues();
+                    values.put(Constants.COL_WORD, word);
+                    values.put(Constants.COL_SPAM_COUNT, spamCounts.get(word));
+                    values.put(Constants.COL_HAM_COUNT, hamCounts.getOrDefault(word, 0));
+                    db.insertWithOnConflict(Constants.TABLE_WORD_COUNTS, null, values, SQLiteDatabase.CONFLICT_REPLACE);
+                }
+                for (String word : hamCounts.keySet()) {
+                    if (!spamCounts.containsKey(word)) {
+                        ContentValues values = new ContentValues();
+                        values.put(Constants.COL_WORD, word);
+                        values.put(Constants.COL_SPAM_COUNT, 0);
+                        values.put(Constants.COL_HAM_COUNT, hamCounts.get(word));
+                        db.insertWithOnConflict(Constants.TABLE_WORD_COUNTS, null, values, SQLiteDatabase.CONFLICT_REPLACE);
+                    }
                 }
             }
             db.setTransactionSuccessful();

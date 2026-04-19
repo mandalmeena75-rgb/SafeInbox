@@ -120,6 +120,9 @@ public class MainActivity extends AppCompatActivity {
             view.findViewById(R.id.btn_view_spam_main).setOnClickListener(v -> {
                 startActivity(new Intent(requireActivity(), SpamActivity.class));
             });
+            view.findViewById(R.id.btn_view_archive).setOnClickListener(v -> {
+                startActivity(new Intent(requireActivity(), ArchiveActivity.class));
+            });
             return view;
         }
     }

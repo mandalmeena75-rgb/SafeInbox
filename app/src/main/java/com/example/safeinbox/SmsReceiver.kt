@@ -31,6 +31,9 @@ class SmsReceiver : BroadcastReceiver() {
                     return
                 }
 
+                // Guarantee process stays alive during background work
+                val pendingResult = goAsync()
+                
                 // Process on a background thread to avoid blocking the broadcast
                 TurboExecutor.getInstance().execute {
                     try {
@@ -76,6 +79,9 @@ class SmsReceiver : BroadcastReceiver() {
                         }
                     } catch (e: Exception) {
                         Log.e(TAG, "Error in SMS processing thread", e)
+                    } finally {
+                        // Tell OS we are completely done and it can release WakeLock
+                        pendingResult?.finish()
                     }
                 }
             }

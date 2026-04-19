@@ -34,6 +34,10 @@ import com.example.safeinbox.models.SmsMessage;
 import com.example.safeinbox.services.SmsNotificationListener;
 import com.example.safeinbox.sms.SmsReader;
 import com.example.safeinbox.utils.Constants;
+import com.example.safeinbox.utils.TurboExecutor;
+import com.example.safeinbox.detection.SpamScoreEngine;
+import com.example.safeinbox.models.ClassificationResult;
+import android.widget.ProgressBar;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -56,10 +60,14 @@ public class InboxActivity extends AppCompatActivity implements SmsAdapter.OnMes
 
     // Lazy-initialized on background thread only (never blocks UI)
     private volatile SpamDetector spamDetector;
+    private volatile SpamScoreEngine spamScoreEngine;
 
     private SmsObserver smsObserver;
     private RcsMessageReceiver rcsReceiver;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
+
+    private View headerStandard, headerSelection;
+    private TextView textSelectionCount;
 
     // Single background thread for all DB work – prevents contention
     private final ExecutorService bgExecutor = Executors.newSingleThreadExecutor();
@@ -81,10 +89,8 @@ public class InboxActivity extends AppCompatActivity implements SmsAdapter.OnMes
         @Override
         public void onReceive(Context context, Intent intent) {
             Log.d(TAG, "RCS broadcast received – refreshing");
-            bgExecutor.execute(() -> {
-                final List<SmsMessage> messages = spamDao.getMessages(false);
-                safePostToUi(() -> updateList(messages));
-            });
+            // Use loadMessages() which has full dedup + blacklist pipeline
+            bgExecutor.execute(() -> loadMessages());
         }
     }
 
@@ -106,6 +112,23 @@ public class InboxActivity extends AppCompatActivity implements SmsAdapter.OnMes
         adapter = new SmsAdapter(new ArrayList<>(), this);
         recyclerView.setAdapter(adapter);
 
+        // Advanced Search Indicator Logic
+        adapter.setOnFilterResultsListener(count -> {
+            String query = adapter.getCurrentQuery();
+            if (count == 0 && !query.isEmpty()) {
+                emptyText.setText("🔍 No results found for \"" + query + "\"");
+                emptyText.setVisibility(View.VISIBLE);
+                recyclerView.setVisibility(View.GONE);
+            } else if (count == 0) {
+                emptyText.setText("📭 Your inbox is empty");
+                emptyText.setVisibility(View.VISIBLE);
+                recyclerView.setVisibility(View.GONE);
+            } else {
+                emptyText.setVisibility(View.GONE);
+                recyclerView.setVisibility(View.VISIBLE);
+            }
+        });
+
         swipeRefreshLayout.setOnRefreshListener(
                 () -> bgExecutor.execute(this::syncNewMessages));
 
@@ -119,6 +142,12 @@ public class InboxActivity extends AppCompatActivity implements SmsAdapter.OnMes
 
         findViewById(R.id.btn_view_spam).setOnClickListener(v ->
                 startActivity(new Intent(InboxActivity.this, SpamActivity.class)));
+
+        findViewById(R.id.btn_home).setOnClickListener(v -> {
+            startActivity(new Intent(InboxActivity.this, DashboardActivity.class));
+            finish();
+        });
+        setupSelectionToolbar();
 
         // Fast initial load from DB (no sync yet)
         bgExecutor.execute(this::loadMessages);
@@ -154,27 +183,111 @@ public class InboxActivity extends AppCompatActivity implements SmsAdapter.OnMes
         }
     }
 
+    private void setupSelectionToolbar() {
+        headerStandard = findViewById(R.id.header_standard);
+        headerSelection = findViewById(R.id.header_selection);
+        textSelectionCount = findViewById(R.id.text_selection_count);
+
+        findViewById(R.id.btn_cancel_selection).setOnClickListener(v -> {
+            adapter.clearSelection();
+        });
+
+        findViewById(R.id.btn_batch_archive).setOnClickListener(v -> {
+            Set<Long> ids = adapter.getSelectedIds();
+            List<SmsMessage> selectedMessages = adapter.getSelectedMessages();
+            
+            new AlertDialog.Builder(this, R.style.DarkAlertDialog)
+                    .setTitle("📦 Archive " + ids.size() + " messages")
+                    .setMessage("These messages will be hidden from your inbox.")
+                    .setPositiveButton("Archive", (d, w) -> {
+                        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+                        Set<String> archived = new HashSet<>(prefs.getStringSet(Constants.KEY_ARCHIVED_DEDUP_IDS, new HashSet<>()));
+                        for (SmsMessage msg : selectedMessages) {
+                            if (msg.getDedupId() != null) archived.add(msg.getDedupId());
+                        }
+                        prefs.edit().putStringSet(Constants.KEY_ARCHIVED_DEDUP_IDS, archived).apply();
+                        
+                        adapter.clearSelection();
+                        loadMessages();
+                        Toast.makeText(this, "📦 Batch archived", Toast.LENGTH_SHORT).show();
+                    })
+                    .setNegativeButton("Cancel", null)
+                    .show();
+        });
+
+        findViewById(R.id.btn_batch_delete).setOnClickListener(v -> {
+            Set<Long> ids = adapter.getSelectedIds();
+            new AlertDialog.Builder(this, R.style.DarkAlertDialog)
+                    .setTitle("🗑️ Delete " + ids.size() + " messages")
+                    .setMessage("This action is permanent and cannot be undone.")
+                    .setPositiveButton("Delete Permanently", (d, w) -> {
+                        bgExecutor.execute(() -> {
+                            spamDao.deleteMessagesBatch(ids);
+                            loadMessages();
+                        });
+                        adapter.clearSelection();
+                        Toast.makeText(this, "🗑️ Batch deleted", Toast.LENGTH_SHORT).show();
+                    })
+                    .setNegativeButton("Cancel", null)
+                    .show();
+        });
+    }
+
+    @Override
+    public void onSelectionChanged(int count) {
+        if (count > 0) {
+            headerStandard.setVisibility(View.GONE);
+            headerSelection.setVisibility(View.VISIBLE);
+            textSelectionCount.setText(count + " selected");
+        } else {
+            headerStandard.setVisibility(View.VISIBLE);
+            headerSelection.setVisibility(View.GONE);
+        }
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (adapter.isSelectionMode()) {
+            adapter.clearSelection();
+        } else {
+            super.onBackPressed();
+        }
+    }
+
     // ───────────────────── Data loading helpers ───────────────────────────────
 
-    /** Load all non-spam messages from DB and push to the RecyclerView. */
     private void loadMessages() {
         try {
             SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-            Set<String> archived = prefs.getStringSet(KEY_ARCHIVED_IDS, new HashSet<>());
+            Set<String> archived = prefs.getStringSet(Constants.KEY_ARCHIVED_DEDUP_IDS, new HashSet<>());
             
             final List<SmsMessage> allMessages = spamDao.getMessages(false);
             
-            // --- JAVA-SIDE DEDUPLICATION HAMMER ---
-            // Manually collapse identical messages (content-wise) to ensure 0 duplicates in UI.
+            // TURBO: Load ALL deleted fingerprints in 1 query (not N queries!)
+            Set<String> deletedFingerprints = spamDao.getAllDeletedFingerprints();
+            
+            // --- NUCLEAR DEDUPLICATION HAMMER ---
+            // Use BODY FINGERPRINT (body only, no sender/timestamp) as the dedup key.
+            // This catches the same message arriving via SMS (sender="650025") and 
+            // RCS (sender="Airtel") which would have different content fingerprints.
             java.util.Map<String, SmsMessage> dedupMap = new java.util.LinkedHashMap<>();
             for (SmsMessage msg : allMessages) {
-                if (archived.contains(String.valueOf(msg.getId()))) continue;
+                // Skip archived messages
+                if (msg.getDedupId() != null && archived.contains(msg.getDedupId())) continue;
                 
-                String body = msg.getBody() != null ? msg.getBody().trim().toLowerCase() : "";
-                String key = com.example.safeinbox.utils.ContactUtils.normalizeSender(msg.getSender()) + "|" + body;
+                // Content fingerprint for deletion blacklist check
+                String contentFp = spamDao.generateContentFingerprint(msg);
+                if (deletedFingerprints.contains(contentFp)) continue;
                 
-                if (!dedupMap.containsKey(key)) {
-                    dedupMap.put(key, msg);
+                // Body fingerprint for UI dedup — catches cross-path duplicates
+                String bodyFp = spamDao.generateBodyFingerprint(msg);
+                if (bodyFp.isEmpty()) continue; // Skip empty body messages
+                
+                // Also check body-only blacklist (catches cross-sender deletions)
+                if (deletedFingerprints.contains("body|" + bodyFp)) continue;
+                
+                if (!dedupMap.containsKey(bodyFp)) {
+                    dedupMap.put(bodyFp, msg);
                 }
             }
             final List<SmsMessage> filteredMessages = new ArrayList<>(dedupMap.values());
@@ -223,8 +336,18 @@ public class InboxActivity extends AppCompatActivity implements SmsAdapter.OnMes
                         continue;
                     }
                     
-                    boolean isSpam = spamDetector.isSpam(msg.getSender(), msg.getBody());
+                    // DELETION BLACKLIST: Never re-add a message the user explicitly deleted
+                    // Uses content fingerprint (sender+body only, no timestamp) for reliable matching
+                    String contentFp = spamDao.generateContentFingerprint(msg);
+                    if (spamDao.isMessageDeleted(contentFp)) {
+                        continue;
+                    }
+                    
+                    // CHECK BLOCKED NUMBERS: If sender was blocked, always classify as spam
+                    boolean isBlocked = spamDao.isBlockedNumber(msg.getSender());
+                    boolean isSpam = isBlocked || spamDetector.isSpam(msg.getSender(), msg.getBody());
                     msg.setSpam(isSpam);
+                    msg.setBlocked(isBlocked);
                     spamDao.insertMessage(msg);
                     if (msg.getDate() > maxTimestamp) {
                         maxTimestamp = msg.getDate();
@@ -258,92 +381,141 @@ public class InboxActivity extends AppCompatActivity implements SmsAdapter.OnMes
 
     @Override
     public void onMessageClick(SmsMessage message, int position) {
-        showDetailDialog(message, position);
+        showSecurityAuditDialog(message, position);
     }
 
-    private void showDetailDialog(SmsMessage message, int position) {
+    private void showSecurityAuditDialog(SmsMessage message, int position) {
         if (isFinishing() || isDestroyed()) return;
 
         LayoutInflater inflater = LayoutInflater.from(this);
-        View view = inflater.inflate(R.layout.dialog_message_detail, null);
+        View view = inflater.inflate(R.layout.dialog_security_audit, null);
 
-        ((TextView) view.findViewById(R.id.detail_sender)).setText(message.getSender());
-        ((TextView) view.findViewById(R.id.detail_body)).setText(message.getBody());
-        ((TextView) view.findViewById(R.id.detail_date)).setText(message.getFormattedDate());
+        TextView senderTv = view.findViewById(R.id.audit_sender);
+        TextView dateTv = view.findViewById(R.id.audit_date);
+        TextView bodyTv = view.findViewById(R.id.audit_body_preview);
+        
+        TextView mlScoreTv = view.findViewById(R.id.audit_ml_score);
+        ProgressBar mlProgress = view.findViewById(R.id.audit_ml_progress);
+        
+        TextView keywordScoreTv = view.findViewById(R.id.audit_keyword_score);
+        ProgressBar keywordProgress = view.findViewById(R.id.audit_keyword_progress);
+        
+        TextView historyScoreTv = view.findViewById(R.id.audit_history_score);
+        ProgressBar historyProgress = view.findViewById(R.id.audit_history_progress);
+        
+        TextView verdictTv = view.findViewById(R.id.audit_final_verdict);
 
-        new AlertDialog.Builder(this, R.style.DarkAlertDialog)
+        senderTv.setText(message.getSenderName() != null ? message.getSenderName() + " (" + message.getSender() + ")" : message.getSender());
+        dateTv.setText(message.getFormattedDate());
+        bodyTv.setText(message.getBody());
+
+        AlertDialog dialog = new AlertDialog.Builder(this, R.style.DarkAlertDialog)
                 .setView(view)
-                .setPositiveButton("Mark as Spam", (d, w) -> {
-                    bgExecutor.execute(() -> {
-                        try {
-                            spamDao.insertFeedback(message.getId(), Constants.LABEL_SPAM);
-                            
-                            if (spamDetector == null) spamDetector = SpamDetector.getInstance(this);
-                            spamDetector.trainFromFeedback(message.getBody(), true);
-                        } catch (Exception e) {
-                            Log.e(TAG, "Mark spam error", e);
-                        }
-                    });
-                    adapter.removeMessageById(message.getId());
-                    checkEmptyState();
-                    Toast.makeText(this, "✅ Moved to Spam", Toast.LENGTH_SHORT).show();
-                })
-                .setNegativeButton("Ham", (d, w) -> {
-                    bgExecutor.execute(() -> {
-                        try {
-                            spamDao.insertFeedback(message.getId(), Constants.LABEL_HAM);
-                            
-                            if (spamDetector == null) spamDetector = SpamDetector.getInstance(this);
-                            spamDetector.trainFromFeedback(message.getBody(), false);
-                        } catch (Exception e) {
-                            Log.e(TAG, "Ham error", e);
-                        }
-                    });
-                    Toast.makeText(this, "✅ Confirmed as safe (Ham)", Toast.LENGTH_SHORT).show();
-                    d.dismiss();
-                })
-                .setNeutralButton("Close", (d, w) -> d.dismiss())
-                .show();
+                .create();
+
+        // Custom High-Contrast Buttons natively inside the XML layout
+        view.findViewById(R.id.btn_audit_positive).setOnClickListener(v -> {
+            onMarkSpam(message, position);
+            dialog.dismiss();
+        });
+        
+        view.findViewById(R.id.btn_audit_negative).setOnClickListener(v -> {
+            // Because they are in Inbox, "Not Spam" is technically "Archive" or "Ignore"
+            onArchive(message, position);
+            dialog.dismiss();
+        });
+        
+        view.findViewById(R.id.btn_audit_block).setOnClickListener(v -> {
+            onBlockReport(message, position);
+            dialog.dismiss();
+        });
+        
+        view.findViewById(R.id.btn_audit_cancel).setOnClickListener(v -> dialog.dismiss());
+
+        dialog.show();
+
+        // Perform Audit Scan in Background
+        bgExecutor.execute(() -> {
+            if (spamScoreEngine == null) {
+                if (spamDetector == null) spamDetector = SpamDetector.getInstance(this);
+                spamScoreEngine = new SpamScoreEngine(this, (com.example.safeinbox.detection.MLClassifier) spamDetector.getClassifier());
+            }
+            
+            String[] words = message.getBody().toLowerCase().split("\\s+");
+            ClassificationResult result = spamScoreEngine.classify(message.getSender(), message.getBody(), words);
+            
+            safePostToUi(() -> {
+                mlScoreTv.setText(result.mlScore + "% confidence");
+                mlProgress.setProgress(result.mlScore);
+                
+                keywordScoreTv.setText(result.keywordScore > 20 ? "High Risk" : "Normal");
+                keywordProgress.setProgress(result.keywordScore * 2); // Scale to 100
+                
+                historyScoreTv.setText(result.historyScore > 10 ? "Known Spammer" : "Clean History");
+                historyProgress.setProgress(result.historyScore * 5); // Scale to 100
+                
+                verdictTv.setText("VERDICT: " + result.reason);
+                if (result.isSpam) {
+                    verdictTv.setTextColor(getResources().getColor(R.color.error_red));
+                } else {
+                    verdictTv.setTextColor(getResources().getColor(R.color.success_green));
+                }
+            });
+        });
     }
 
     // ── Block & Report ──────────────────────────────────────────────────────
+    @Override
+    public void onMarkSpam(SmsMessage message, int position) {
+        // --- TURBO: Optimistic UI update ---
+        adapter.removeMessageById(message.getId());
+        checkEmptyState();
+        Toast.makeText(this, "⚠️ Marked as spam", Toast.LENGTH_SHORT).show();
+        
+        bgExecutor.execute(() -> {
+            // Use updateSpamStatus (which only sets is_spam=1, not is_blocked=1)
+            // It still uses the cross-sender body matching I implemented earlier.
+            spamDao.updateSpamStatus(message.getId(), true);
+            
+            if (spamDetector == null) spamDetector = SpamDetector.getInstance(this);
+            spamDetector.trainFromFeedback(message.getBody(), true);
+        });
+    }
+
     @Override
     public void onBlockReport(SmsMessage message, int position) {
         new AlertDialog.Builder(this, R.style.DarkAlertDialog)
                 .setTitle("🚫 Block & Report")
                 .setMessage("Block \"" + message.getSender() + "\" and report as spam?\n\nAll future messages from this number will be automatically blocked.")
                 .setPositiveButton("Block & Report", (d, w) -> {
+                    // --- TURBO FEEDBACK: Optimistic UI Update ---
+                    adapter.removeMessageById(message.getId());
+                    checkEmptyState();
+                    Toast.makeText(this, "🚫 \"" + message.getSender() + "\" blocked & reported", Toast.LENGTH_LONG).show();
+
                     bgExecutor.execute(() -> {
                         try {
-                            // 1. Add number to our internal spam blocklist
-                            spamDao.addSpamNumber(message.getSender());
+                            // BOOST: Use atomic batch transaction for near-instant DB update
+                            spamDao.blockAndReportBatch(message.getId(), message.getSender());
                             
-                            // 2. Mark this message as spam in the DB
-                            spamDao.insertFeedback(message.getId(), Constants.LABEL_SPAM);
-                            
-                            // 3. Train the ML model
-                            if (spamDetector == null) spamDetector = SpamDetector.getInstance(this);
-                            spamDetector.trainFromFeedback(message.getBody(), true);
-
-                            // 4. Try to add to system block list (Android 7+)
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                            // BOOST: Offload ML and System blocking to parallel Turbo Pool
+                            TurboExecutor.getInstance().execute(() -> {
                                 try {
-                                    android.content.ContentValues values = new android.content.ContentValues();
-                                    values.put(android.provider.BlockedNumberContract.BlockedNumbers.COLUMN_ORIGINAL_NUMBER, message.getSender());
-                                    getContentResolver().insert(android.provider.BlockedNumberContract.BlockedNumbers.CONTENT_URI, values);
-                                } catch (SecurityException se) {
-                                    Log.w(TAG, "Cannot add to system block list – not default dialer", se);
-                                }
-                            }
+                                    if (spamDetector == null) spamDetector = SpamDetector.getInstance(this);
+                                    spamDetector.trainFromFeedback(message.getBody(), true);
 
-                            safePostToUi(() -> {
-                                adapter.removeMessageById(message.getId());
-                                checkEmptyState();
-                                Toast.makeText(this, "🚫 \"" + message.getSender() + "\" blocked & reported", Toast.LENGTH_LONG).show();
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                                        android.content.ContentValues cv = new android.content.ContentValues();
+                                        cv.put(android.provider.BlockedNumberContract.BlockedNumbers.COLUMN_ORIGINAL_NUMBER, message.getSender());
+                                        getContentResolver().insert(android.provider.BlockedNumberContract.BlockedNumbers.CONTENT_URI, cv);
+                                    }
+                                } catch (Exception e) {
+                                    Log.w(TAG, "Error in parallel turbo tasks", e);
+                                }
                             });
                         } catch (Exception e) {
                             Log.e(TAG, "Block error", e);
-                            safePostToUi(() -> Toast.makeText(this, "❌ Failed to block", Toast.LENGTH_SHORT).show());
+                            safePostToUi(() -> Toast.makeText(this, "❌ Failed to sync block", Toast.LENGTH_SHORT).show());
                         }
                     });
                 })
@@ -367,6 +539,47 @@ public class InboxActivity extends AppCompatActivity implements SmsAdapter.OnMes
         });
     }
 
+    @Override
+    public void onUnblock(SmsMessage message, int position) {
+        new AlertDialog.Builder(this, R.style.DarkAlertDialog)
+                .setTitle("🔓 Unblock Sender")
+                .setMessage("Unblock \"" + message.getSender() + "\"?\n\nFuture messages from this number will arrive in your Inbox.")
+                .setPositiveButton("Unblock", (d, w) -> {
+                    Toast.makeText(this, "✅ Sender unblocked", Toast.LENGTH_SHORT).show();
+
+                    bgExecutor.execute(() -> {
+                        try {
+                            // 1. Unblock in local database
+                            spamDao.removeSpamNumber(message.getSender());
+                            
+                            // 2. Refresh UI to remove blocked indicators ([BLOCKED] tags)
+                            loadMessages();
+                            
+                            // 3. Try to undo system-level block (Android 7+)
+                            TurboExecutor.getInstance().execute(() -> {
+                                try {
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                                        try {
+                                            getContentResolver().delete(android.provider.BlockedNumberContract.BlockedNumbers.CONTENT_URI, 
+                                                android.provider.BlockedNumberContract.BlockedNumbers.COLUMN_ORIGINAL_NUMBER + "=?", 
+                                                new String[]{message.getSender()});
+                                        } catch (SecurityException se) {
+                                            Log.w(TAG, "Cannot remove system block", se);
+                                        }
+                                    }
+                                } catch (Exception e) {
+                                    Log.w(TAG, "Error in parallel turbo tasks", e);
+                                }
+                            });
+                        } catch (Exception e) {
+                            Log.e(TAG, "Unblock error", e);
+                        }
+                    });
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
     // ── Delete ──────────────────────────────────────────────────────────────
     @Override
     public void onDelete(SmsMessage message, int position) {
@@ -374,17 +587,17 @@ public class InboxActivity extends AppCompatActivity implements SmsAdapter.OnMes
                 .setTitle("🗑️ Delete Message")
                 .setMessage("Are you sure you want to permanently delete this message from \"" + message.getSender() + "\"?")
                 .setPositiveButton("Delete", (d, w) -> {
+                    // --- TURBO FEEDBACK: Optimistic UI Update ---
+                    adapter.removeMessageById(message.getId());
+                    checkEmptyState();
+                    Toast.makeText(this, "🗑️ Message deleted", Toast.LENGTH_SHORT).show();
+
                     bgExecutor.execute(() -> {
                         try {
                             spamDao.deleteMessageById(message.getId());
-                            safePostToUi(() -> {
-                                adapter.removeMessageById(message.getId());
-                                checkEmptyState();
-                                Toast.makeText(this, "🗑️ Message deleted", Toast.LENGTH_SHORT).show();
-                            });
                         } catch (Exception e) {
                             Log.e(TAG, "Delete error", e);
-                            safePostToUi(() -> Toast.makeText(this, "❌ Failed to delete", Toast.LENGTH_SHORT).show());
+                            safePostToUi(() -> Toast.makeText(this, "❌ Background deletion failed", Toast.LENGTH_SHORT).show());
                         }
                     });
                 })
@@ -399,18 +612,25 @@ public class InboxActivity extends AppCompatActivity implements SmsAdapter.OnMes
                 .setTitle("📦 Archive Message")
                 .setMessage("Archive this message? It will be hidden from your inbox but not deleted.")
                 .setPositiveButton("Archive", (d, w) -> {
-                    // Store archived message ID in SharedPreferences
+                    // Store archived message dedupId in SharedPreferences
                     SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-                    Set<String> archived = new HashSet<>(prefs.getStringSet(KEY_ARCHIVED_IDS, new HashSet<>()));
-                    archived.add(String.valueOf(message.getId()));
-                    prefs.edit().putStringSet(KEY_ARCHIVED_IDS, archived).apply();
+                    Set<String> archived = new HashSet<>(prefs.getStringSet(Constants.KEY_ARCHIVED_DEDUP_IDS, new HashSet<>()));
+                    if (message.getDedupId() != null) {
+                        archived.add(message.getDedupId());
+                        prefs.edit().putStringSet(Constants.KEY_ARCHIVED_DEDUP_IDS, archived).apply();
+                    }
 
                     adapter.removeMessageById(message.getId());
                     checkEmptyState();
-                    Toast.makeText(this, "📦 Message archived", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, "📦 Message archived (fingerprint-aware)", Toast.LENGTH_SHORT).show();
                 })
                 .setNegativeButton("Cancel", null)
                 .show();
+    }
+
+    @Override
+    public void onUnarchive(SmsMessage message, int position) {
+        // Not used in InboxActivity, option is only shown in Archive screen
     }
 
     // ── Help & Feedback ─────────────────────────────────────────────────────

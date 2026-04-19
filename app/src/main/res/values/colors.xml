@@ -16,7 +16,11 @@
     <color name="text_grey">#B0B0C0</color>
     <color name="text_hint">#707080</color>
 
-    <!-- UI Elements -->
+    <!-- UI Elements (Softer Premium Palette) -->
+    <color name="premium_rose">#EC407A</color>
+    <color name="premium_gold">#FFC107</color>
+    <color name="soft_mint">#81C784</color>
+    <color name="frost_blue_soft">#80DEEA</color>
     <color name="error_red">#FF5252</color>
     <color name="success_green">#4CAF50</color>
     <color name="shadow_purple">#446A1B9A</color>
@@ -42,4 +46,8 @@
     <color name="divider">#446A1B9A</color>
     <color name="item_background">#1E1E2E</color>
     <color name="accent_red">#FF5252</color>
+    <color name="selection_highlight">#33CE93D8</color>
+    <color name="button_border_grey">#44B0B0C0</color>
+    <color name="accent_cyan">#00E5FF</color>
+    <color name="status_glow">#4D00E5FF</color>
 </resources>

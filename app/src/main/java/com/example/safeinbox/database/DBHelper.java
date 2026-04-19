@@ -82,6 +82,11 @@ public class DBHelper extends SQLiteOpenHelper {
                 + Constants.COL_LAST_UPDATED + " INTEGER)";
         db.execSQL(createSenderScores);
 
+        String createDeleted = "CREATE TABLE " + Constants.TABLE_DELETED_MESSAGES + " ("
+                + Constants.COL_ID + " INTEGER PRIMARY KEY AUTOINCREMENT, "
+                + Constants.COL_DEDUP_ID + " TEXT UNIQUE)";
+        db.execSQL(createDeleted);
+
         // ── TURBO INDEXES for fast queries ──────────────────────────────────
         createIndexes(db);
     }
@@ -130,6 +135,18 @@ public class DBHelper extends SQLiteOpenHelper {
                 Log.d(TAG, "v9 migration: is_blocked added");
             } catch (Exception e) {
                 Log.e(TAG, "v9 migration failed", e);
+            }
+        }
+
+        if (oldVersion < 10) {
+            // v10: Add deleted_messages table
+            try {
+                db.execSQL("CREATE TABLE IF NOT EXISTS " + Constants.TABLE_DELETED_MESSAGES + " ("
+                        + Constants.COL_ID + " INTEGER PRIMARY KEY AUTOINCREMENT, "
+                        + Constants.COL_DEDUP_ID + " TEXT UNIQUE)");
+                Log.d(TAG, "v10 migration: deleted_messages table created");
+            } catch (Exception e) {
+                Log.e(TAG, "v10 migration failed", e);
             }
         }
     }

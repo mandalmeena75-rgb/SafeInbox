@@ -1,0 +1,292 @@
+package com.example.safeinbox.activities;
+
+import android.app.AlertDialog;
+import android.content.SharedPreferences;
+import android.os.Bundle;
+import android.text.Editable;
+import android.text.TextWatcher;
+import android.util.Log;
+import android.view.View;
+import android.widget.EditText;
+import android.widget.TextView;
+import android.widget.Toast;
+
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
+
+import com.example.safeinbox.R;
+import com.example.safeinbox.adapters.SmsAdapter;
+import com.example.safeinbox.database.SpamDao;
+import com.example.safeinbox.models.SmsMessage;
+import com.example.safeinbox.utils.Constants;
+
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+public class ArchiveActivity extends AppCompatActivity implements SmsAdapter.OnMessageActionListener {
+
+    private static final String TAG = "ArchiveActivity";
+    private static final String PREFS_NAME = "SafeInboxPrefs";
+
+    private RecyclerView recyclerView;
+    private SwipeRefreshLayout swipeRefreshLayout;
+    private SmsAdapter adapter;
+    private TextView emptyText;
+    private SpamDao spamDao;
+    private final ExecutorService bgExecutor = Executors.newSingleThreadExecutor();
+
+    private View headerStandard, headerSelection;
+    private TextView textSelectionCount;
+
+    private final android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+
+    private void safePostToUi(Runnable r) {
+        if (!isFinishing() && !isDestroyed()) {
+            mainHandler.post(r);
+        }
+    }
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_archive);
+
+        spamDao = new SpamDao(this);
+
+        recyclerView = findViewById(R.id.recycler_archive);
+        swipeRefreshLayout = findViewById(R.id.swipe_refresh_archive);
+        emptyText = findViewById(R.id.text_empty_archive);
+        EditText searchEdit = findViewById(R.id.edit_search_archive);
+
+        swipeRefreshLayout.setOnRefreshListener(() -> bgExecutor.execute(this::loadArchivedMessages));
+
+        recyclerView.setLayoutManager(new LinearLayoutManager(this));
+        adapter = new SmsAdapter(new ArrayList<>(), this);
+        recyclerView.setAdapter(adapter);
+
+        adapter.setOnFilterResultsListener(count -> {
+            String query = adapter.getCurrentQuery();
+            if (count == 0 && !query.isEmpty()) {
+                emptyText.setText("🔍 No archives found for \"" + query + "\"");
+                emptyText.setVisibility(View.VISIBLE);
+                recyclerView.setVisibility(View.GONE);
+            } else if (count == 0) {
+                emptyText.setText("📦 Archive Vault is empty");
+                emptyText.setVisibility(View.VISIBLE);
+                recyclerView.setVisibility(View.GONE);
+            } else {
+                emptyText.setVisibility(View.GONE);
+                recyclerView.setVisibility(View.VISIBLE);
+            }
+        });
+
+        searchEdit.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
+                adapter.getFilter().filter(s);
+            }
+            @Override public void afterTextChanged(Editable s) {}
+        });
+
+        findViewById(R.id.btn_back).setOnClickListener(v -> finish());
+
+        setupSelectionToolbar();
+
+        bgExecutor.execute(this::loadArchivedMessages);
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        bgExecutor.execute(this::loadArchivedMessages);
+    }
+
+    private void setupSelectionToolbar() {
+        headerStandard = findViewById(R.id.header_standard_archive);
+        headerSelection = findViewById(R.id.header_selection_archive);
+        textSelectionCount = findViewById(R.id.text_selection_count_archive);
+
+        findViewById(R.id.btn_cancel_selection_archive).setOnClickListener(v -> {
+            adapter.clearSelection();
+        });
+
+        findViewById(R.id.btn_batch_unarchive).setOnClickListener(v -> {
+            Set<Long> ids = adapter.getSelectedIds();
+            List<SmsMessage> selectedMessages = adapter.getSelectedMessages();
+
+            new AlertDialog.Builder(this, R.style.DarkAlertDialog)
+                    .setTitle("📦 Unarchive " + ids.size() + " messages")
+                    .setMessage("These messages will be returned to their original locations (Inbox/Spam).")
+                    .setPositiveButton("Unarchive", (d, w) -> {
+                        bgExecutor.execute(() -> {
+                            SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+                            Set<String> archived = new HashSet<>(prefs.getStringSet(Constants.KEY_ARCHIVED_DEDUP_IDS, new HashSet<>()));
+                            for (SmsMessage msg : selectedMessages) {
+                                if (msg.getDedupId() != null) archived.remove(msg.getDedupId());
+                            }
+                            prefs.edit().putStringSet(Constants.KEY_ARCHIVED_DEDUP_IDS, archived).apply();
+                            loadArchivedMessages();
+                        });
+                        adapter.clearSelection();
+                        Toast.makeText(this, "📦 Batch unarchived", Toast.LENGTH_SHORT).show();
+                    })
+                    .setNegativeButton("Cancel", null)
+                    .show();
+        });
+
+        findViewById(R.id.btn_batch_delete_archive).setOnClickListener(v -> {
+            Set<Long> ids = adapter.getSelectedIds();
+            new AlertDialog.Builder(this, R.style.DarkAlertDialog)
+                    .setTitle("🗑️ Permanent Delete " + ids.size() + " archive items")
+                    .setMessage("This action is permanent and cannot be undone.")
+                    .setPositiveButton("Shred Permanently", (d, w) -> {
+                        bgExecutor.execute(() -> {
+                            spamDao.deleteMessagesBatch(ids);
+                            loadArchivedMessages();
+                        });
+                        adapter.clearSelection();
+                        Toast.makeText(this, "🔥 Archives deleted", Toast.LENGTH_SHORT).show();
+                    })
+                    .setNegativeButton("Cancel", null)
+                    .show();
+        });
+    }
+
+    private void loadArchivedMessages() {
+        try {
+            SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+            Set<String> archivedIds = prefs.getStringSet(Constants.KEY_ARCHIVED_DEDUP_IDS, new HashSet<>());
+
+            if (archivedIds.isEmpty()) {
+                safePostToUi(() -> {
+                    adapter.setMessages(new ArrayList<>());
+                    emptyText.setVisibility(View.VISIBLE);
+                    recyclerView.setVisibility(View.GONE);
+                    if (swipeRefreshLayout.isRefreshing()) swipeRefreshLayout.setRefreshing(false);
+                });
+                return;
+            }
+
+            // Load all messages from DB (both spam and ham)
+            List<SmsMessage> hamMessages = spamDao.getMessages(false);
+            List<SmsMessage> spamMessages = spamDao.getMessages(true);
+
+            List<SmsMessage> archivedList = new ArrayList<>();
+            for (SmsMessage msg : hamMessages) {
+                if (msg.getDedupId() != null && archivedIds.contains(msg.getDedupId())) {
+                    archivedList.add(msg);
+                }
+            }
+            for (SmsMessage msg : spamMessages) {
+                if (msg.getDedupId() != null && archivedIds.contains(msg.getDedupId())) {
+                    archivedList.add(msg);
+                }
+            }
+
+            safePostToUi(() -> {
+                adapter.setMessages(archivedList);
+                if (archivedList.isEmpty()) {
+                    emptyText.setVisibility(View.VISIBLE);
+                    recyclerView.setVisibility(View.GONE);
+                } else {
+                    emptyText.setVisibility(View.GONE);
+                    recyclerView.setVisibility(View.VISIBLE);
+                }
+                if (swipeRefreshLayout.isRefreshing()) {
+                    swipeRefreshLayout.setRefreshing(false);
+                }
+            });
+        } catch (Exception e) {
+            Log.e(TAG, "loadArchivedMessages error", e);
+        }
+    }
+
+    @Override
+    public void onSelectionChanged(int count) {
+        if (count > 0) {
+            headerStandard.setVisibility(View.GONE);
+            headerSelection.setVisibility(View.VISIBLE);
+            textSelectionCount.setText(count + " selected");
+        } else {
+            headerStandard.setVisibility(View.VISIBLE);
+            headerSelection.setVisibility(View.GONE);
+        }
+    }
+
+    @Override
+    public void onMessageClick(SmsMessage message, int position) {
+        // Show details (audits might be stale or not applicable, but basic info is fine)
+        Toast.makeText(this, "Sender: " + message.getSender(), Toast.LENGTH_SHORT).show();
+    }
+
+    @Override
+    public void onMarkSpam(SmsMessage message, int position) {}
+
+    @Override
+    public void onBlockReport(SmsMessage message, int position) {}
+
+    @Override
+    public void onMarkNotSpam(SmsMessage message, int position) {}
+
+    @Override
+    public void onUnblock(SmsMessage message, int position) {}
+
+    @Override
+    public void onDelete(SmsMessage message, int position) {
+        new AlertDialog.Builder(this, R.style.DarkAlertDialog)
+                .setTitle("🗑️ Delete Archive")
+                .setMessage("Permanently delete this archived message?")
+                .setPositiveButton("Delete", (d, w) -> {
+                    adapter.removeMessageById(message.getId());
+                    if (adapter.getItemCount() == 0) emptyText.setVisibility(View.VISIBLE);
+                    bgExecutor.execute(() -> spamDao.deleteMessageById(message.getId()));
+                    Toast.makeText(this, "🗑️ Deleted", Toast.LENGTH_SHORT).show();
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    @Override
+    public void onArchive(SmsMessage message, int position) {}
+
+    @Override
+    public void onUnarchive(SmsMessage message, int position) {
+        new AlertDialog.Builder(this, R.style.DarkAlertDialog)
+                .setTitle("📦 Unarchive")
+                .setMessage("Bring this message back to your main folders?")
+                .setPositiveButton("Unarchive", (d, w) -> {
+                    adapter.removeMessageById(message.getId());
+                    if (adapter.getItemCount() == 0) emptyText.setVisibility(View.VISIBLE);
+                    
+                    bgExecutor.execute(() -> {
+                        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+                        Set<String> archived = new HashSet<>(prefs.getStringSet(Constants.KEY_ARCHIVED_DEDUP_IDS, new HashSet<>()));
+                        if (message.getDedupId() != null) {
+                            archived.remove(message.getDedupId());
+                            prefs.edit().putStringSet(Constants.KEY_ARCHIVED_DEDUP_IDS, archived).apply();
+                        }
+                    });
+                    Toast.makeText(this, "📦 Message unarchived", Toast.LENGTH_SHORT).show();
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    @Override
+    public void onHelpFeedback(SmsMessage message, int position) {}
+
+    @Override
+    public void onBackPressed() {
+        if (adapter.isSelectionMode()) {
+            adapter.clearSelection();
+        } else {
+            super.onBackPressed();
+        }
+    }
+}
