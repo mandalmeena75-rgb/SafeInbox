@@ -11,34 +11,60 @@ public class SmsMessage {
     private String senderName;
     private String body;
     private long date;
-    private boolean isSpam;
-    private boolean isBlocked;
     private String dedupId;
+    
+    // New fields for advanced classification
+    private String classificationStatus; // SAFE, SUSPICIOUS, SPAM
+    private boolean hasRiskyLink;
+    private boolean isBlocked;
 
     public SmsMessage() {
+        this.classificationStatus = "SAFE";
     }
 
     public SmsMessage(String sender, String body, long date) {
         this.sender = sender;
         this.body = body;
         this.date = date;
-        this.isSpam = false;
-        this.isBlocked = false;
+        this.classificationStatus = "SAFE";
     }
 
-    public SmsMessage(long id, String sender, String senderName, String body, long date, boolean isSpam, boolean isBlocked) {
-        this(id, sender, senderName, body, date, isSpam, isBlocked, null);
+    public SmsMessage(long id, String sender, String senderName, String body, long date, String classificationStatus) {
+        this(id, sender, senderName, body, date, classificationStatus, null);
     }
 
-    public SmsMessage(long id, String sender, String senderName, String body, long date, boolean isSpam, boolean isBlocked, String dedupId) {
+    public SmsMessage(long id, String sender, String senderName, String body, long date, String classificationStatus, String dedupId) {
         this.id = id;
         this.sender = sender;
         this.senderName = senderName;
         this.body = body;
         this.date = date;
-        this.isSpam = isSpam;
-        this.isBlocked = isBlocked;
+        this.classificationStatus = classificationStatus != null ? classificationStatus : "SAFE";
         this.dedupId = dedupId;
+    }
+
+    public String getClassificationStatus() {
+        return classificationStatus;
+    }
+
+    public void setClassificationStatus(String classificationStatus) {
+        this.classificationStatus = classificationStatus;
+    }
+
+    public boolean isHasRiskyLink() {
+        return hasRiskyLink;
+    }
+
+    public void setHasRiskyLink(boolean hasRiskyLink) {
+        this.hasRiskyLink = hasRiskyLink;
+    }
+
+    public boolean isBlocked() {
+        return isBlocked;
+    }
+
+    public void setBlocked(boolean blocked) {
+        isBlocked = blocked;
     }
 
     public String getDedupId() {
@@ -89,22 +115,6 @@ public class SmsMessage {
         this.date = date;
     }
 
-    public boolean isSpam() {
-        return isSpam;
-    }
-
-    public void setSpam(boolean spam) {
-        isSpam = spam;
-    }
-
-    public boolean isBlocked() {
-        return isBlocked;
-    }
-
-    public void setBlocked(boolean blocked) {
-        isBlocked = blocked;
-    }
-
     // Helper for UI formatting
     public String getFormattedDate() {
         SimpleDateFormat sdf = new SimpleDateFormat("MMM dd, hh:mm a", Locale.getDefault());
@@ -124,3 +134,4 @@ public class SmsMessage {
         return (int) (id ^ (id >>> 32));
     }
 }
+

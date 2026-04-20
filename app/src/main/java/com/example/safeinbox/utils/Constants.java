@@ -4,7 +4,7 @@ public class Constants {
 
     // Database
     public static final String DB_NAME = "safeinbox.db";
-    public static final int DB_VERSION = 10;
+    public static final int DB_VERSION = 11;
 
     // Table: messages
     public static final String TABLE_MESSAGES = "messages";
@@ -16,6 +16,8 @@ public class Constants {
     public static final String COL_IS_SPAM = "is_spam";
     public static final String COL_IS_BLOCKED = "is_blocked";
     public static final String COL_DEDUP_ID = "dedup_id";
+    public static final String COL_CLASSIFICATION_STATUS = "classification_status";
+    public static final String COL_HAS_RISKY_LINK = "has_risky_link";
 
     // Table: spam_numbers
     public static final String TABLE_SPAM_NUMBERS = "spam_numbers";

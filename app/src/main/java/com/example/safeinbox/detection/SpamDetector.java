@@ -27,7 +27,11 @@ public class SpamDetector {
 
     public boolean isSpam(String sender, String body) {
         ClassificationResult result = classifyWithDetails(sender, body);
-        return result.isSpam;
+        return result.status == ClassificationResult.Status.SPAM;
+    }
+
+    public ClassificationResult.Status getStatus(String sender, String body) {
+        return classifyWithDetails(sender, body).status;
     }
 
     public ClassificationResult classifyWithDetails(String sender, String body) {

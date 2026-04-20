@@ -7,6 +7,7 @@ import android.net.Uri
 import android.util.Log
 import com.example.safeinbox.database.SpamDao
 import com.example.safeinbox.detection.SpamDetector
+import com.example.safeinbox.models.ClassificationResult
 import com.example.safeinbox.models.SmsMessage
 import com.example.safeinbox.utils.ContactUtils
 import com.example.safeinbox.utils.TurboExecutor
@@ -57,20 +58,20 @@ class MmsReceiver : BroadcastReceiver() {
                             return
                         }
 
-                        val isBlocked = dao.isBlockedNumber(finalSender)
-                        val isSpam = isBlocked || detector.isSpam(finalSender, bodyTrim)
+                        // Use the unified 3-tier classification engine
+                        val result = detector.classifyWithDetails(finalSender, bodyTrim)
                         val contactName = ContactUtils.getContactName(context, finalSender)
 
                         val mmsRecord = SmsMessage(finalSender, bodyTrim, date)
                         mmsRecord.senderName = contactName
-                        mmsRecord.isSpam = isSpam
-                        mmsRecord.isBlocked = isBlocked
+                        mmsRecord.classificationStatus = result.status.name
                         dao.insertMessage(mmsRecord)
                         
                         // Phase 3: Increment sender score based on classification
-                        dao.incrementSenderScore(finalSender, isSpam)
+                        val isSpamVerdict = (result.status == com.example.safeinbox.models.ClassificationResult.Status.SPAM)
+                        dao.incrementSenderScore(finalSender, isSpamVerdict)
 
-                        Log.d("MmsReceiver", "MMS stored from $finalSender. Spam: $isSpam | Blocked: $isBlocked")
+                        Log.d("MmsReceiver", "MMS stored from $finalSender. Status: ${result.status.name}")
                     }
                 } catch (e: Exception) {
                     Log.e("MmsReceiver", "Error processing MMS", e)

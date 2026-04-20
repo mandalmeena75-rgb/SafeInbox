@@ -9,7 +9,7 @@
     android:layout_marginBottom="4dp"
     app:cardCornerRadius="12dp"
     app:cardElevation="2dp"
-    app:cardBackgroundColor="@color/item_background"
+    app:cardBackgroundColor="@color/suspicious_background"
     android:foreground="?android:attr/selectableItemBackground"
     android:clickable="true"
     android:focusable="true">
@@ -98,11 +98,11 @@
                     android:paddingEnd="6dp"
                     android:paddingTop="2dp"
                     android:paddingBottom="2dp"
-                    android:text="SAFE"
+                    android:text="SUSPICIOUS"
                     android:textColor="#FFFFFF"
                     android:textSize="9sp"
                     android:textStyle="bold"
-                    android:background="@drawable/bg_label_service"
+                    android:background="@color/warning_orange"
                     android:visibility="visible" />
 
                 <TextView
@@ -110,7 +110,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:textSize="11sp"
-                    android:textColor="@color/accent_blue"
+                    android:textColor="@color/text_grey"
                     android:layout_marginEnd="4dp" />
 
                 <ImageButton
@@ -120,7 +120,7 @@
                     android:background="?android:attr/selectableItemBackgroundBorderless"
                     android:src="@drawable/ic_more_vert"
                     android:contentDescription="Options"
-                    app:tint="@color/text_secondary" />
+                    app:tint="@color/text_grey" />
 
             </LinearLayout>
 
@@ -130,7 +130,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
                 android:textSize="14sp"
-                android:textColor="@color/text_secondary"
+                android:textColor="@color/text_grey"
                 android:maxLines="2"
                 android:ellipsize="end" />
 

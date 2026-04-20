@@ -7,6 +7,7 @@ import android.provider.Telephony
 import android.util.Log
 import com.example.safeinbox.database.SpamDao
 import com.example.safeinbox.detection.SpamDetector
+import com.example.safeinbox.models.ClassificationResult
 import com.example.safeinbox.models.SmsMessage
 import com.example.safeinbox.utils.ContactUtils
 import com.example.safeinbox.utils.TurboExecutor
@@ -55,17 +56,18 @@ class SmsReceiver : BroadcastReceiver() {
                                     continue
                                 }
 
-                                val isSpam = detector.isSpam(sender, bodyTrim)
+                                val result = detector.classifyWithDetails(sender, bodyTrim)
                                 val contactName = ContactUtils.getContactName(context, sender)
 
                                 val smsRecord = SmsMessage(sender, bodyTrim, timestamp)
                                 smsRecord.senderName = contactName
-                                smsRecord.isSpam = isSpam
-                                smsRecord.isBlocked = dao.isBlockedNumber(sender)
+                                smsRecord.classificationStatus = result.status.name
+                                smsRecord.isHasRiskyLink = result.isRiskyLink
                                 
                                 processedMessages.add(smsRecord)
                                 
                                 // Phase 3: Increment sender score based on classification
+                                val isSpam = (result.status == com.example.safeinbox.models.ClassificationResult.Status.SPAM)
                                 dao.incrementSenderScore(sender, isSpam)
                             } catch (e: Exception) {
                                 Log.e(TAG, "Error processing individual SMS", e)

@@ -6,9 +6,11 @@ import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.os.Build;
 import android.provider.BlockedNumberContract;
+import android.net.Uri;
 import android.util.Log;
 import android.util.LruCache;
 
+import com.example.safeinbox.detection.SpamDetector;
 import com.example.safeinbox.models.SenderReputation;
 import com.example.safeinbox.models.SmsMessage;
 import com.example.safeinbox.utils.Constants;
@@ -153,22 +155,39 @@ public class SpamDao {
         try {
             String dedupId = generateDedupId(message);
             
-            // Check deletion blacklist using CONTENT FINGERPRINT (time-independent)
+            // 1. Check deletion blacklist (Permanent Shredding)
             String contentFp = generateContentFingerprint(message);
             if (isMessageDeleted(contentFp)) {
                 Log.d(TAG, "Skipping insertion: message is in deleted blacklist");
                 return -1;
             }
 
+            // 2. Check Archive status (Persistence across syncs)
+            if (isMessageArchived(dedupId)) {
+                Log.d(TAG, "Skipping insertion: message is safely stored in Archives");
+                return -1;
+            }
+
             SQLiteDatabase db = dbHelper.getWritableDatabase();
             ContentValues values = new ContentValues();
-            values.put(Constants.COL_SENDER, normalizeSender(message.getSender()));
+            String sender = normalizeSender(message.getSender());
+            values.put(Constants.COL_SENDER, sender);
             values.put(Constants.COL_SENDER_NAME, message.getSenderName());
             values.put(Constants.COL_BODY, message.getBody() != null ? message.getBody().trim() : "");
             values.put(Constants.COL_DATE, message.getDate());
-            values.put(Constants.COL_IS_SPAM, message.isSpam() ? 1 : 0);
-            values.put(Constants.COL_IS_BLOCKED, message.isBlocked() ? 1 : 0);
+            
+            // 3. ENFORCE BLOCKLIST (100% Accuracy)
+            // If sender is blocked, it IS spam, regardless of classification score
+            boolean isGloballyBlocked = isNumberInSpamTable(sender);
+            boolean isSpamDetected = "SPAM".equals(message.getClassificationStatus());
+            
+            boolean finalSpamStatus = isGloballyBlocked || isSpamDetected;
+            values.put(Constants.COL_IS_SPAM, finalSpamStatus ? 1 : 0);
+            values.put(Constants.COL_IS_BLOCKED, isGloballyBlocked ? 1 : 0);
+            
             values.put(Constants.COL_DEDUP_ID, dedupId);
+            values.put(Constants.COL_CLASSIFICATION_STATUS, finalSpamStatus ? "SPAM" : message.getClassificationStatus());
+            values.put(Constants.COL_HAS_RISKY_LINK, message.isHasRiskyLink() ? 1 : 0);
             
             return db.insertWithOnConflict(Constants.TABLE_MESSAGES, null, values,
                     SQLiteDatabase.CONFLICT_IGNORE);
@@ -180,26 +199,41 @@ public class SpamDao {
 
     /**
      * Batch insert with transaction and fuzzy dedup.
+     * NUCLEAR UPGRADE: Enforces global blocklist and archive integrity
+     * for every message in the batch.
      */
     public void insertMessagesBatch(List<SmsMessage> messages) {
         SQLiteDatabase db = dbHelper.getWritableDatabase();
+        
+        // Cache blocked numbers and archives to avoid N+1 queries during batch
+        java.util.Set<String> blockedNumbers = getBlacklistedNumbersSet();
+        java.util.Set<String> archivedDedupIds = getArchivedDedupIds();
+        
         db.beginTransaction();
         try {
             for (SmsMessage message : messages) {
                 String dedupId = generateDedupId(message);
-                
-                // Check deletion blacklist using CONTENT FINGERPRINT (time-independent)
                 String contentFp = generateContentFingerprint(message);
+                
                 if (isMessageDeleted(contentFp)) continue;
+                if (archivedDedupIds.contains(dedupId)) continue;
 
                 ContentValues values = new ContentValues();
-                values.put(Constants.COL_SENDER, normalizeSender(message.getSender()));
+                String sender = normalizeSender(message.getSender());
+                values.put(Constants.COL_SENDER, sender);
                 values.put(Constants.COL_SENDER_NAME, message.getSenderName());
                 values.put(Constants.COL_BODY, message.getBody() != null ? message.getBody().trim() : "");
                 values.put(Constants.COL_DATE, message.getDate());
-                values.put(Constants.COL_IS_SPAM, message.isSpam() ? 1 : 0);
-                values.put(Constants.COL_IS_BLOCKED, message.isBlocked() ? 1 : 0);
+                
+                boolean isBlocked = blockedNumbers.contains(sender);
+                boolean isSpam = isBlocked || "SPAM".equals(message.getClassificationStatus());
+                
+                values.put(Constants.COL_IS_SPAM, isSpam ? 1 : 0);
+                values.put(Constants.COL_IS_BLOCKED, isBlocked ? 1 : 0);
+                
                 values.put(Constants.COL_DEDUP_ID, dedupId);
+                values.put(Constants.COL_CLASSIFICATION_STATUS, isSpam ? "SPAM" : message.getClassificationStatus());
+                values.put(Constants.COL_HAS_RISKY_LINK, message.isHasRiskyLink() ? 1 : 0);
                 
                 db.insertWithOnConflict(Constants.TABLE_MESSAGES, null, values,
                         SQLiteDatabase.CONFLICT_IGNORE);
@@ -212,6 +246,20 @@ public class SpamDao {
         }
     }
 
+    // --- ARCHIVE HELPERS ---
+    private boolean isMessageArchived(String dedupId) {
+        return getArchivedDedupIds().contains(dedupId);
+    }
+
+    private java.util.Set<String> getArchivedDedupIds() {
+        android.content.SharedPreferences prefs = context.getSharedPreferences(Constants.PREFS_NAME, Context.MODE_PRIVATE);
+        return prefs.getStringSet(Constants.KEY_ARCHIVED_DEDUP_IDS, new java.util.HashSet<>());
+    }
+
+    private java.util.Set<String> getBlacklistedNumbersSet() {
+        return new java.util.HashSet<>(getBlacklistedNumbers());
+    }
+
     /**
      * Get messages filtered by spam status, ordered by date descending.
      * Uses the idx_messages_spam_date index for maximum speed.
@@ -220,14 +268,31 @@ public class SpamDao {
      */
     public List<SmsMessage> getMessages(boolean spamOnly) {
         List<SmsMessage> messages = new ArrayList<>();
+        java.util.Set<String> archivedDedupIds = getArchivedDedupIds();
+        
         try {
             SQLiteDatabase db = dbHelper.getReadableDatabase();
 
-            String query = "SELECT * FROM " + Constants.TABLE_MESSAGES
-                    + " WHERE " + Constants.COL_IS_SPAM + " = ?"
-                    + " ORDER BY " + Constants.COL_DATE + " DESC LIMIT 1000";
+            String query;
+            String[] args;
+            
+            if (spamOnly) {
+                // SPAM Filter: status is SPAM OR (status is NULL and is_spam is 1)
+                query = "SELECT * FROM " + Constants.TABLE_MESSAGES
+                        + " WHERE (" + Constants.COL_CLASSIFICATION_STATUS + " = 'SPAM'"
+                        + " OR (" + Constants.COL_CLASSIFICATION_STATUS + " IS NULL AND " + Constants.COL_IS_SPAM + " = 1))"
+                        + " ORDER BY " + Constants.COL_DATE + " DESC LIMIT 1000";
+                args = null;
+            } else {
+                // INBOX Filter: status is SAFE/SUSPICIOUS OR (status is NULL and is_spam is 0)
+                query = "SELECT * FROM " + Constants.TABLE_MESSAGES
+                        + " WHERE (" + Constants.COL_CLASSIFICATION_STATUS + " IN ('SAFE', 'SUSPICIOUS', 'OTP', 'SERVICE')"
+                        + " OR (" + Constants.COL_CLASSIFICATION_STATUS + " IS NULL AND " + Constants.COL_IS_SPAM + " = 0))"
+                        + " ORDER BY " + Constants.COL_DATE + " DESC LIMIT 1000";
+                args = null;
+            }
 
-            Cursor cursor = db.rawQuery(query, new String[]{spamOnly ? "1" : "0"});
+            Cursor cursor = db.rawQuery(query, args);
 
             if (cursor != null) {
                 try {
@@ -239,29 +304,35 @@ public class SpamDao {
                     int spamIdx = cursor.getColumnIndexOrThrow(Constants.COL_IS_SPAM);
                     int blockedIdx = cursor.getColumnIndexOrThrow(Constants.COL_IS_BLOCKED);
                     int dedupIdx = cursor.getColumnIndexOrThrow(Constants.COL_DEDUP_ID);
+                    int classificationIdx = cursor.getColumnIndexOrThrow(Constants.COL_CLASSIFICATION_STATUS);
+                    int riskyLinkIdx = cursor.getColumnIndexOrThrow(Constants.COL_HAS_RISKY_LINK);
 
                     while (cursor.moveToNext()) {
                         String dedupId = cursor.getString(dedupIdx);
                         
-                        // FALLBACK: If dedup_id is missing (older messages), generate one on-the-fly
-                        if (dedupId == null || dedupId.isEmpty()) {
-                            SmsMessage temp = new SmsMessage();
-                            temp.setSender(cursor.getString(senderIdx));
-                            temp.setBody(cursor.getString(bodyIdx));
-                            temp.setDate(cursor.getLong(dateIdx));
-                            dedupId = generateDedupId(temp);
+                        
+                        // --- ARCHIVE FILTERING ---
+                        // If this message belongs in the Archive, strictly exclude it from the main UI lists
+                        if (archivedDedupIds.contains(dedupId)) continue;
+
+                        String classificationStatus = cursor.getString(classificationIdx);
+                        if (classificationStatus == null) {
+                            classificationStatus = cursor.getInt(spamIdx) == 1 ? "SPAM" : "SAFE";
                         }
 
-                        messages.add(new SmsMessage(
+                        SmsMessage msg = new SmsMessage(
                                 cursor.getLong(idIdx),
                                 cursor.getString(senderIdx),
                                 cursor.getString(nameIdx),
                                 cursor.getString(bodyIdx),
                                 cursor.getLong(dateIdx),
-                                cursor.getInt(spamIdx) == 1,
-                                cursor.getInt(blockedIdx) == 1,
+                                classificationStatus,
                                 dedupId
-                        ));
+                        );
+                        
+                        msg.setHasRiskyLink(cursor.getInt(riskyLinkIdx) == 1);
+                        msg.setBlocked(cursor.getInt(blockedIdx) == 1);
+                        messages.add(msg);
                     }
                 } finally {
                     cursor.close();
@@ -286,16 +357,23 @@ public class SpamDao {
             if (cursor != null) {
                 try {
                     if (cursor.moveToFirst()) {
-                        return new SmsMessage(
+                        String classificationStatus = cursor.getString(cursor.getColumnIndexOrThrow(Constants.COL_CLASSIFICATION_STATUS));
+                        if (classificationStatus == null) {
+                            classificationStatus = cursor.getInt(cursor.getColumnIndexOrThrow(Constants.COL_IS_SPAM)) == 1 ? "SPAM" : "SAFE";
+                        }
+
+                        SmsMessage msg = new SmsMessage(
                                 cursor.getLong(cursor.getColumnIndexOrThrow(Constants.COL_ID)),
                                 cursor.getString(cursor.getColumnIndexOrThrow(Constants.COL_SENDER)),
                                 cursor.getString(cursor.getColumnIndexOrThrow(Constants.COL_SENDER_NAME)),
                                 cursor.getString(cursor.getColumnIndexOrThrow(Constants.COL_BODY)),
                                 cursor.getLong(cursor.getColumnIndexOrThrow(Constants.COL_DATE)),
-                                cursor.getInt(cursor.getColumnIndexOrThrow(Constants.COL_IS_SPAM)) == 1,
-                                cursor.getInt(cursor.getColumnIndexOrThrow(Constants.COL_IS_BLOCKED)) == 1,
+                                classificationStatus,
                                 cursor.getString(cursor.getColumnIndexOrThrow(Constants.COL_DEDUP_ID))
                         );
+
+                        msg.setHasRiskyLink(cursor.getInt(cursor.getColumnIndexOrThrow(Constants.COL_HAS_RISKY_LINK)) == 1);
+                        return msg;
                     }
                 } finally {
                     cursor.close();
@@ -315,29 +393,24 @@ public class SpamDao {
             SQLiteDatabase db = dbHelper.getWritableDatabase();
             ContentValues values = new ContentValues();
             values.put(Constants.COL_IS_SPAM, isSpam ? 1 : 0);
+            values.put(Constants.COL_CLASSIFICATION_STATUS, isSpam ? "SPAM" : "SAFE");
             
             // NUCLEAR: Update ALL rows with the same sender and same body
             String normalizedSender = normalizeSender(msg.getSender());
             int rows;
-            if (msg != null) {
-                // Feature: Cross-sender duplicate handling
-                // If a message is uniquely long, it's a promotional/spam blast. Marking one 
-                // marks all identical bodies across different senders (SMS vs RCS).
-                if (msg.getBody() != null && msg.getBody().length() > 15) {
-                    rows = db.update(Constants.TABLE_MESSAGES, values,
-                            Constants.COL_BODY + " = ?",
-                            new String[]{msg.getBody()});
-                } else {
-                    // For short generic messages ("Hi", "Ok"), only mark this specific sender
-                    rows = db.update(Constants.TABLE_MESSAGES, values,
-                            Constants.COL_SENDER + " = ? AND " + Constants.COL_BODY + " = ?",
-                            new String[]{normalizedSender != null ? normalizedSender : "", msg.getBody()});
-                }
-            } else {
-                // Fallback: update by ID
+            
+            // Feature: Cross-sender duplicate handling
+            // If a message is uniquely long, it's a promotional/spam blast. Marking one 
+            // marks all identical bodies across different senders (SMS vs RCS).
+            if (msg.getBody() != null && msg.getBody().length() > 15) {
                 rows = db.update(Constants.TABLE_MESSAGES, values,
-                        Constants.COL_ID + " = ?",
-                        new String[]{String.valueOf(messageId)});
+                        Constants.COL_BODY + " = ?",
+                        new String[]{msg.getBody()});
+            } else {
+                // For short generic messages ("Hi", "Ok"), only mark this specific sender
+                rows = db.update(Constants.TABLE_MESSAGES, values,
+                        Constants.COL_SENDER + " = ? AND " + Constants.COL_BODY + " = ?",
+                        new String[]{normalizedSender != null ? normalizedSender : "", msg.getBody()});
             }
             Log.d(TAG, "updateSpamStatus affected " + rows + " messages for sender: " + normalizedSender);
             
@@ -509,20 +582,26 @@ public class SpamDao {
     public void removeSpamNumber(String number) {
         if (number == null) return;
         try {
+            String normalizedNumber = normalizeSender(number);
             SQLiteDatabase db = dbHelper.getWritableDatabase();
-            // 1. Remove from blocked_numbers table
-            db.delete(Constants.TABLE_SPAM_NUMBERS,
-                    Constants.COL_NUMBER + " = ?",
-                    new String[]{normalizeSender(number)});
             
-            // 2. Update all existing messages from this sender to clear the blocked flag
+            // 1. Remove from blocked_numbers table (both raw and normalized)
+            db.delete(Constants.TABLE_SPAM_NUMBERS,
+                    Constants.COL_NUMBER + " = ? OR " + Constants.COL_NUMBER + " = ?",
+                    new String[]{number, normalizedNumber});
+            
+            // 2. Update ALL messages from this sender: clear blocked flag AND reset to SAFE
             ContentValues values = new ContentValues();
+            values.put(Constants.COL_IS_SPAM, 0);
             values.put(Constants.COL_IS_BLOCKED, 0);
+            values.put(Constants.COL_CLASSIFICATION_STATUS, "SAFE");
+            
+            // Update using both raw and normalized forms to catch every variant
             db.update(Constants.TABLE_MESSAGES, values, 
-                    Constants.COL_SENDER + " = ?", 
-                    new String[]{number});
+                    Constants.COL_SENDER + " = ? OR " + Constants.COL_SENDER + " = ?", 
+                    new String[]{number, normalizedNumber});
                     
-            Log.d(TAG, "Unblocked sender and cleared flags in SpamDao: " + number);
+            Log.d(TAG, "Unblocked sender and restored ALL messages to SAFE: " + normalizedNumber);
         } catch (Exception e) {
             Log.e(TAG, "removeSpamNumber error", e);
         }
@@ -616,31 +695,18 @@ public class SpamDao {
             fbValues.put(Constants.COL_LABEL, Constants.LABEL_SPAM);
             db.insert(Constants.TABLE_FEEDBACK, null, fbValues);
 
-            // 3. NUCLEAR: Mark ALL messages from this sender AND same body as spam + blocked
+            // 3. NUCLEAR: Mark ALL messages from this sender as spam + blocked
+            // Every single historical message from this sender is now routed to the Vault.
             ContentValues msgValues = new ContentValues();
             msgValues.put(Constants.COL_IS_SPAM, 1);
             msgValues.put(Constants.COL_IS_BLOCKED, 1);
-            int rows;
-            if (msg != null) {
-                // Feature: Cross-sender duplicate handling
-                // If a message is uniquely long, it's a promotional/spam blast. Marking one 
-                // marks all identical bodies across different senders (SMS vs RCS).
-                if (msg.getBody() != null && msg.getBody().length() > 15) {
-                    rows = db.update(Constants.TABLE_MESSAGES, msgValues,
-                            Constants.COL_BODY + " = ?",
-                            new String[]{msg.getBody()});
-                } else {
-                    // For short generic messages ("Hi", "Ok"), only mark this specific sender
-                    rows = db.update(Constants.TABLE_MESSAGES, msgValues,
-                            Constants.COL_SENDER + " = ? AND " + Constants.COL_BODY + " = ?",
-                            new String[]{normalizedSender != null ? normalizedSender : "", msg.getBody()});
-                }
-            } else {
-                rows = db.update(Constants.TABLE_MESSAGES, msgValues,
-                        Constants.COL_ID + " = ?",
-                        new String[]{String.valueOf(messageId)});
-            }
-            Log.d(TAG, "blockAndReport: updated " + rows + " messages for sender " + normalizedSender);
+            msgValues.put(Constants.COL_CLASSIFICATION_STATUS, "SPAM");
+            
+            int rows = db.update(Constants.TABLE_MESSAGES, msgValues,
+                    Constants.COL_SENDER + " = ?",
+                    new String[]{normalizedSender != null ? normalizedSender : ""});
+            
+            Log.d(TAG, "blockAndReport: Nuclear moved " + rows + " messages from sender " + normalizedSender + " to Vault.");
             
             // 4. CLEANUP BUGGED BLACKLISTS: If the message was previously blacklisted by the old bug, 
             // force-remove it so it can properly appear in the View Spam screen!
@@ -943,13 +1009,36 @@ public class SpamDao {
 
     public java.util.List<android.util.Pair<String, Integer>> getTopBlockedSenders(int limit) {
         java.util.List<android.util.Pair<String, Integer>> result = new java.util.ArrayList<>();
-        try (Cursor cursor = dbHelper.getReadableDatabase().rawQuery(
-                "SELECT " + Constants.COL_SENDER_KEY + ", " + Constants.COL_SPAM_HITS + " FROM " + Constants.TABLE_SENDER_SCORES +
-                " ORDER BY " + Constants.COL_SPAM_HITS + " DESC LIMIT " + limit, null)) {
-            while (cursor != null && cursor.moveToNext()) {
-                String sender = cursor.getString(0);
-                int hits = cursor.getInt(1);
-                if (hits > 0) result.add(new android.util.Pair<>(sender, hits));
+        try {
+            SQLiteDatabase db = dbHelper.getReadableDatabase();
+            
+            // Query the ACTUAL blocklist table, joined with message counts
+            // This guarantees 100% accuracy: if a sender is in the blocklist, they show up here.
+            String query = "SELECT b." + Constants.COL_NUMBER + ", "
+                    + "COALESCE(m.sender_name, b." + Constants.COL_NUMBER + ") AS display_name, "
+                    + "COUNT(m." + Constants.COL_ID + ") AS msg_count "
+                    + "FROM " + Constants.TABLE_SPAM_NUMBERS + " b "
+                    + "LEFT JOIN " + Constants.TABLE_MESSAGES + " m "
+                    + "ON m." + Constants.COL_SENDER + " = b." + Constants.COL_NUMBER
+                    + " GROUP BY b." + Constants.COL_NUMBER
+                    + " ORDER BY msg_count DESC"
+                    + " LIMIT " + limit;
+            
+            Cursor cursor = db.rawQuery(query, null);
+            if (cursor != null) {
+                try {
+                    while (cursor.moveToNext()) {
+                        String number = cursor.getString(0);
+                        String displayName = cursor.getString(1);
+                        int count = cursor.getInt(2);
+                        
+                        // Use display name if available, otherwise the raw number
+                        String display = (displayName != null && !displayName.isEmpty()) ? displayName : number;
+                        result.add(new android.util.Pair<>(display, Math.max(count, 1)));
+                    }
+                } finally {
+                    cursor.close();
+                }
             }
         } catch (Exception e) {
             Log.e(TAG, "getTopBlockedSenders error", e);
@@ -965,33 +1054,36 @@ public class SpamDao {
     public java.util.List<android.util.Pair<String, Integer>> getThreatCategories() {
         java.util.List<android.util.Pair<String, Integer>> categories = new java.util.ArrayList<>();
         int financial = 0;
-        int verification = 0;
+        int identity = 0;
         int delivery = 0;
-        int marketing = 0;
+        int promotional = 0;
         int unknown = 0;
 
         try {
             java.util.List<com.example.safeinbox.models.SmsMessage> spam = getMessages(true);
             for (com.example.safeinbox.models.SmsMessage msg : spam) {
                 String body = msg.getBody().toLowerCase();
-                if (body.contains("win") || body.contains("prize") || body.contains("lottery") || body.contains("offer")) {
-                    marketing++;
-                } else if (body.contains("bank") || body.contains("account") || body.contains("blocked") || body.contains("card") || body.contains("kyc")) {
+                
+                // Aligning with KeywordFilter logic for 100% data consistency
+                if (body.contains("bank") || body.contains("account") || body.contains("blocked") || body.contains("card") || body.contains("kyc") || body.contains("unauthorized")) {
                     financial++;
-                } else if (body.contains("otp") || body.contains("code") || body.contains("verify") || body.contains("login")) {
-                    verification++;
-                } else if (body.contains("order") || body.contains("package") || body.contains("ship") || body.contains("track")) {
+                } else if (body.contains("otp") || body.contains("code") || body.contains("verify") || body.contains("login") || body.contains("identity")) {
+                    identity++;
+                } else if (body.contains("order") || body.contains("package") || body.contains("ship") || body.contains("track") || body.contains("delivery")) {
                     delivery++;
+                } else if (body.contains("win") || body.contains("prize") || body.contains("lottery") || body.contains("offer") || body.contains("free") || body.contains("reward")) {
+                    promotional++;
                 } else {
                     unknown++;
                 }
             }
             
-            if (financial > 0) categories.add(new android.util.Pair<>("💳 Financial Scams", financial));
-            if (verification > 0) categories.add(new android.util.Pair<>("🔐 Identity Theft", verification));
-            if (delivery > 0) categories.add(new android.util.Pair<>("📦 Delivery Fraud", delivery));
-            if (marketing > 0) categories.add(new android.util.Pair<>("📢 Promotional Blast", marketing));
-            if (unknown > 0) categories.add(new android.util.Pair<>("🛡️ Unknown Threats", unknown));
+            // Exact labels matching the User's provided screenshot requirements
+            if (financial > 0) categories.add(new android.util.Pair<>("Financial Scams", financial));
+            if (identity > 0) categories.add(new android.util.Pair<>("Identity Theft", identity));
+            if (delivery > 0) categories.add(new android.util.Pair<>("Delivery Fraud", delivery));
+            if (promotional > 0) categories.add(new android.util.Pair<>("Promotional Blast", promotional));
+            if (unknown > 0) categories.add(new android.util.Pair<>("Unknown Threats", unknown));
             
         } catch (Exception e) {
             Log.e(TAG, "getThreatCategories error", e);
@@ -1065,5 +1157,208 @@ public class SpamDao {
             Log.e(TAG, "Industrial Shredder error", e);
         }
         return shredded;
+    }
+    /**
+     * PRECISION REPAIR TOOL: Fixes messages with missing/empty senders.
+     * Uses fuzzy matching: Queries system SMS by timestamp (+/- 2s) first,
+     * then verifies body similarity in Java to restore the original address.
+     */
+    public void repairCorruptedMessages() {
+        try {
+            SQLiteDatabase db = dbHelper.getWritableDatabase();
+            String query = "SELECT " + Constants.COL_ID + ", " + Constants.COL_BODY + ", " + Constants.COL_DATE 
+                         + " FROM " + Constants.TABLE_MESSAGES 
+                         + " WHERE " + Constants.COL_SENDER + " IS NULL OR " 
+                         + Constants.COL_SENDER + " = '' OR " 
+                         + Constants.COL_SENDER + " = 'Unknown Sender' OR "
+                         + Constants.COL_SENDER + " = 'Unknown'";
+            
+            Cursor cursor = db.rawQuery(query, null);
+            if (cursor == null) return;
+
+            try {
+                int idIdx = cursor.getColumnIndexOrThrow(Constants.COL_ID);
+                int bodyIdx = cursor.getColumnIndexOrThrow(Constants.COL_BODY);
+                int dateIdx = cursor.getColumnIndexOrThrow(Constants.COL_DATE);
+
+                while (cursor.moveToNext()) {
+                    long id = cursor.getLong(idIdx);
+                    String localBody = cursor.getString(bodyIdx);
+                    long date = cursor.getLong(dateIdx);
+
+                    if (localBody == null || localBody.isEmpty()) continue;
+
+                    // Try fuzzy matching in system SMS
+                    String originalSender = findOriginalSenderFuzzy(localBody, date);
+                    if (originalSender != null && !originalSender.isEmpty()) {
+                        String normalized = normalizeSender(originalSender);
+                        String name = ContactUtils.getContactName(context, originalSender);
+                        
+                        ContentValues values = new ContentValues();
+                        values.put(Constants.COL_SENDER, normalized);
+                        values.put(Constants.COL_SENDER_NAME, name);
+                        
+                        // Force update dedup_id with correct sender
+                        SmsMessage temp = new SmsMessage();
+                        temp.setSender(normalized);
+                        temp.setBody(localBody);
+                        temp.setDate(date);
+                        values.put(Constants.COL_DEDUP_ID, generateDedupId(temp));
+
+                        db.update(Constants.TABLE_MESSAGES, values, 
+                                 Constants.COL_ID + " = ?", new String[]{String.valueOf(id)});
+                        
+                        Log.d(TAG, "Precision repaired ID " + id + " -> Sender: " + originalSender);
+                    }
+                }
+            } finally {
+                cursor.close();
+            }
+            
+            // SECONDARY FIX: Recalculate all statuses to ensure single source of truth
+            syncClassificationStatuses();
+            
+        } catch (Exception e) {
+            Log.e(TAG, "repairCorruptedMessages error", e);
+        }
+    }
+
+    /**
+     * NUCLEAR RECALCULATION: Forces every message in the database to be re-run through the 
+     * scoring engine. This aligns old messages with the new 3-tier rules and ensures
+     * no SAFE message remains marked as is_spam=1 or resides in the SPAM folder.
+     */
+    public void syncClassificationStatuses() {
+        Log.d(TAG, "☢ Starting Nuclear Classification Recalculation...");
+        try {
+            SQLiteDatabase db = dbHelper.getWritableDatabase();
+            db.beginTransaction();
+            try {
+                String query = "SELECT * FROM " + Constants.TABLE_MESSAGES;
+                Cursor cursor = db.rawQuery(query, null);
+                if (cursor != null) {
+                    try {
+                        int idIdx = cursor.getColumnIndexOrThrow(Constants.COL_ID);
+                        int senderIdx = cursor.getColumnIndexOrThrow(Constants.COL_SENDER);
+                        int bodyIdx = cursor.getColumnIndexOrThrow(Constants.COL_BODY);
+                        
+                        SpamDetector detector = SpamDetector.getInstance(context);
+                        
+                        while (cursor.moveToNext()) {
+                            long id = cursor.getLong(idIdx);
+                            String sender = cursor.getString(senderIdx);
+                            String body = cursor.getString(bodyIdx);
+                            
+                            com.example.safeinbox.models.ClassificationResult result = detector.classifyWithDetails(sender, body);
+                            
+                            ContentValues values = new ContentValues();
+                            values.put(Constants.COL_CLASSIFICATION_STATUS, result.status.name());
+                            
+                            // SYNC LEGACY FLAG: Ensure old is_spam column matches the new verdict
+                            boolean isSpam = (result.status == com.example.safeinbox.models.ClassificationResult.Status.SPAM);
+                            values.put(Constants.COL_IS_SPAM, isSpam ? 1 : 0);
+                            
+                            db.update(Constants.TABLE_MESSAGES, values, Constants.COL_ID + " = ?", new String[]{String.valueOf(id)});
+                        }
+                    } finally {
+                        cursor.close();
+                    }
+                }
+                db.setTransactionSuccessful();
+                Log.d(TAG, "✓ Database classification synchronized.");
+            } finally {
+                db.endTransaction();
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "syncClassificationStatuses error", e);
+        }
+    }
+
+    private String findOriginalSenderFuzzy(String localBody, long date) {
+        Cursor systemCursor = null;
+        String localClean = normalizeBody(localBody);
+        
+        try {
+            Uri uri = Uri.parse("content://sms");
+            
+            // PHASE 1: Wide timestamp window (+/- 5 minutes)
+            // RCS notification timestamps can differ significantly from SMS timestamps
+            String selection = "date >= ? AND date <= ?";
+            String[] args = {String.valueOf(date - 300000), String.valueOf(date + 300000)};
+            
+            systemCursor = context.getContentResolver().query(uri, new String[]{"address", "body"}, selection, args, "date DESC");
+            if (systemCursor != null) {
+                while (systemCursor.moveToNext()) {
+                    String addr = systemCursor.getString(0);
+                    String systemBody = systemCursor.getString(1);
+                    if (systemBody == null || addr == null || addr.trim().isEmpty()) continue;
+                    
+                    String systemClean = normalizeBody(systemBody);
+                    if (systemClean.equals(localClean) || systemClean.contains(localClean) || localClean.contains(systemClean)) {
+                        systemCursor.close();
+                        return addr;
+                    }
+                }
+                systemCursor.close();
+                systemCursor = null;
+            }
+            
+            // PHASE 2: Body-only search (no timestamp constraint)
+            // For messages where timestamp is completely different (e.g., delayed RCS)
+            // Use first 40 chars of body as a LIKE query to reduce scan size
+            String bodySnippet = localBody.trim();
+            if (bodySnippet.length() > 40) bodySnippet = bodySnippet.substring(0, 40);
+            // Escape SQL LIKE special chars
+            bodySnippet = bodySnippet.replace("%", "\\%").replace("_", "\\_");
+            
+            String likeSelection = "body LIKE ? ESCAPE '\\'";
+            String[] likeArgs = {bodySnippet + "%"};
+            
+            systemCursor = context.getContentResolver().query(uri, new String[]{"address", "body"}, likeSelection, likeArgs, "date DESC LIMIT 5");
+            if (systemCursor != null) {
+                while (systemCursor.moveToNext()) {
+                    String addr = systemCursor.getString(0);
+                    String systemBody = systemCursor.getString(1);
+                    if (systemBody == null || addr == null || addr.trim().isEmpty()) continue;
+                    
+                    String systemClean = normalizeBody(systemBody);
+                    if (systemClean.equals(localClean) || systemClean.contains(localClean) || localClean.contains(systemClean)) {
+                        systemCursor.close();
+                        return addr;
+                    }
+                }
+                systemCursor.close();
+                systemCursor = null;
+            }
+            
+        } catch (Exception e) {
+            Log.e(TAG, "findOriginalSenderFuzzy error", e);
+        } finally {
+            if (systemCursor != null) systemCursor.close();
+        }
+        return null;
+    }
+
+    /**
+     * CLEANUP TOOL: Moves messages classified as SAFE back to the Inbox.
+     * Use this to correct inadvertent routing mistakes where SAFE items ended up in Spam.
+     */
+    public void moveSafeMessagesToInbox() {
+        try {
+            SQLiteDatabase db = dbHelper.getWritableDatabase();
+            ContentValues values = new ContentValues();
+            values.put(Constants.COL_IS_SPAM, 0);
+            
+            // Move items where Engine says SAFE and they aren't on high-priority block list
+            int rows = db.update(Constants.TABLE_MESSAGES, values, 
+                    Constants.COL_IS_SPAM + " = 1 AND " + Constants.COL_CLASSIFICATION_STATUS + " = 'SAFE' AND " 
+                    + Constants.COL_IS_BLOCKED + " = 0", null);
+            
+            if (rows > 0) {
+                Log.d(TAG, "moveSafeMessagesToInbox: shifted " + rows + " safe messages back to Inbox");
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "moveSafeMessagesToInbox error", e);
+        }
     }
 }

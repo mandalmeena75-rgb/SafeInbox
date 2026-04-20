@@ -48,6 +48,8 @@ public class DBHelper extends SQLiteOpenHelper {
                 + Constants.COL_IS_SPAM + " INTEGER DEFAULT 0, "
                 + Constants.COL_IS_BLOCKED + " INTEGER DEFAULT 0, "
                 + Constants.COL_DEDUP_ID + " TEXT, "
+                + Constants.COL_CLASSIFICATION_STATUS + " TEXT, "
+                + Constants.COL_HAS_RISKY_LINK + " INTEGER DEFAULT 0, "
                 + "UNIQUE(" + Constants.COL_DEDUP_ID + "))";
         db.execSQL(createMessages);
 
@@ -147,6 +149,17 @@ public class DBHelper extends SQLiteOpenHelper {
                 Log.d(TAG, "v10 migration: deleted_messages table created");
             } catch (Exception e) {
                 Log.e(TAG, "v10 migration failed", e);
+            }
+        }
+
+        if (oldVersion < 11) {
+            // v11: Add classification_status and has_risky_link columns
+            try {
+                db.execSQL("ALTER TABLE " + Constants.TABLE_MESSAGES + " ADD COLUMN " + Constants.COL_CLASSIFICATION_STATUS + " TEXT");
+                db.execSQL("ALTER TABLE " + Constants.TABLE_MESSAGES + " ADD COLUMN " + Constants.COL_HAS_RISKY_LINK + " INTEGER DEFAULT 0");
+                Log.d(TAG, "v11 migration: classification columns added");
+            } catch (Exception e) {
+                Log.e(TAG, "v11 migration failed", e);
             }
         }
     }

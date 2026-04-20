@@ -44,7 +44,7 @@ public class SmsDiffCallback extends DiffUtil.Callback {
         SmsMessage oldMsg = oldList.get(oldItemPosition);
         SmsMessage newMsg = newList.get(newItemPosition);
         
-        return oldMsg.isSpam() == newMsg.isSpam() &&
-               (oldMsg.getSenderName() == null ? newMsg.getSenderName() == null : oldMsg.getSenderName().equals(newMsg.getSenderName()));
+        return java.util.Objects.equals(oldMsg.getClassificationStatus(), newMsg.getClassificationStatus()) &&
+               java.util.Objects.equals(oldMsg.getSenderName(), newMsg.getSenderName());
     }
 }

@@ -12,6 +12,7 @@ import android.util.LruCache;
 
 import com.example.safeinbox.database.SpamDao;
 import com.example.safeinbox.detection.SpamDetector;
+import com.example.safeinbox.models.ClassificationResult;
 import com.example.safeinbox.models.SmsMessage;
 import com.example.safeinbox.utils.ContactUtils;
 
@@ -186,7 +187,15 @@ public class SmsNotificationListener extends NotificationListenerService {
             // Fallback: plain "sender" key
             if (senderName == null) {
                 CharSequence senderSeq = msgBundle.getCharSequence("sender");
-                senderName = (senderSeq != null) ? senderSeq.toString() : "Unknown";
+                if (senderSeq != null && !senderSeq.toString().trim().isEmpty()) {
+                    senderName = senderSeq.toString();
+                }
+            }
+            
+            // Last resort: try to identify sender from message body
+            if (senderName == null) {
+                String bodyName = com.example.safeinbox.utils.PrincipalEntityResolver.resolveFromBody(text.toString());
+                senderName = (bodyName != null) ? bodyName : "";
             }
 
             saveMessage(senderName, text.toString(), msgTime, notification);
@@ -200,7 +209,11 @@ public class SmsNotificationListener extends NotificationListenerService {
     /** Dedup → resolve number → classify → insert to DB → broadcast. */
     private void saveMessage(String senderName, String body,
                              long timestamp, Notification notification) {
-        if (senderName == null) senderName = "Unknown";
+        if (senderName == null || senderName.equalsIgnoreCase("Unknown")) {
+            // Try to resolve from message body instead of storing "Unknown"
+            String bodyResolved = com.example.safeinbox.utils.PrincipalEntityResolver.resolveFromBody(body);
+            senderName = (bodyResolved != null) ? bodyResolved : "";
+        }
         if (body == null || body.trim().isEmpty()) return;
 
         // Deduplicate: same sender+body within 5-second window = notification update
@@ -238,24 +251,24 @@ public class SmsNotificationListener extends NotificationListenerService {
                     return;
                 }
 
-                boolean isBlocked = spamDao.isBlockedNumber(finalSender);
-                boolean isSpam = isBlocked || spamDetector.isSpam(finalSender, finalBody);
+                // Use the unified classification engine (SAFE / SUSPICIOUS / SPAM)
+                ClassificationResult result = spamDetector.classifyWithDetails(finalSender, finalBody);
 
                 SmsMessage msg = new SmsMessage(finalSender, finalBody, finalTimestamp);
                 msg.setSenderName(finalSenderName);
-                msg.setSpam(isSpam);
-                msg.setBlocked(isBlocked);
+                msg.setClassificationStatus(result.status.name());
 
                 long rowId = spamDao.insertMessage(msg);
                 if (rowId > 0) {
                     // Phase 3: Increment sender score based on classification
-                    spamDao.incrementSenderScore(finalSender, isSpam);
+                    boolean verdictIsSpam = (result.status == ClassificationResult.Status.SPAM);
+                    spamDao.incrementSenderScore(finalSender, verdictIsSpam);
 
                     // Send broadcast with explicit package to guarantee delivery
                     Intent broadcast = new Intent(ACTION_RCS_MESSAGE_RECEIVED);
                     broadcast.setPackage(getPackageName());
                     sendBroadcast(broadcast);
-                    Log.d(TAG, "✓ Saved RCS id=" + rowId + ", Spam: " + isSpam + " | Blocked: " + isBlocked);
+                    Log.d(TAG, "✓ Saved RCS id=" + rowId + ", Status: " + result.status.name());
                 } else {
                     Log.d(TAG, "– Duplicate from trigger, skipped");
                 }

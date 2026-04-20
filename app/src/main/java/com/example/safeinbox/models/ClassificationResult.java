@@ -4,35 +4,54 @@ package com.example.safeinbox.models;
  * Model class that holds the full breakdown of a classification decision.
  */
 public class ClassificationResult {
-    public int keywordScore;      // 0–40 (spam keywords + link + urgency patterns)
-    public int mlScore;           // 0–30 (Naive Bayes probability mapped to score)
-    public int historyScore;      // 0–20 (past spam classifications for this sender)
-    public int feedbackScore;     // 0–15 (user-reported spam count for this sender)
+    public enum Status {
+        SAFE,
+        SUSPICIOUS,
+        SPAM,
+        OTP,
+        SERVICE
+    }
 
-    public int contactScore;      // 0–25 (sender is in device contacts)
-    public int safeHistoryScore;  // 0–20 (past legitimate classifications)
+    public int keywordScore;      // Spam keywords: +40
+    public int urgencyScore;      // Urgency patterns: +20
+    public int linkScore;         // Suspicious link: +30
+    public int contactWeight;     // Sender in contacts: -30
+    public int contentWeight;     // No link + casual text: -10
+    
+    public int mlScore;           // Naive Bayes contribution
+    public int historyScore;      // Reputation contribution
+    public int feedbackScore;     // User learning contribution
 
-    public int totalSpamScore;    // Sum of spam signals
-    public int totalTrustScore;   // Sum of trust signals
-    public boolean isSpam;        // Final verdict
+    public int totalScore;        // Final weighted score
+    public Status status;         // Classification: SAFE, SUSPICIOUS, SPAM
     public String reason;         // Human-readable explanation
+    public boolean isRiskyLink;   // Flag for safe link warning popup
 
     public ClassificationResult() {
         this.keywordScore = 0;
+        this.urgencyScore = 0;
+        this.linkScore = 0;
+        this.contactWeight = 0;
+        this.contentWeight = 0;
         this.mlScore = 0;
         this.historyScore = 0;
         this.feedbackScore = 0;
-        this.contactScore = 0;
-        this.safeHistoryScore = 0;
-        this.totalSpamScore = 0;
-        this.totalTrustScore = 0;
-        this.isSpam = false;
+        this.totalScore = 0;
+        this.status = Status.SAFE;
         this.reason = "";
+        this.isRiskyLink = false;
     }
 
-    public void calculateTotals() {
-        this.totalSpamScore = keywordScore + mlScore + historyScore + feedbackScore;
-        this.totalTrustScore = contactScore + safeHistoryScore;
-        this.isSpam = totalSpamScore > totalTrustScore;
+    public void calculateStatus() {
+        this.totalScore = keywordScore + urgencyScore + linkScore + contactWeight + contentWeight + mlScore + historyScore + feedbackScore;
+        
+        if (totalScore < 40) {
+            this.status = Status.SAFE;
+        } else if (totalScore <= 70) {
+            this.status = Status.SUSPICIOUS;
+        } else {
+            this.status = Status.SPAM;
+        }
     }
 }
+

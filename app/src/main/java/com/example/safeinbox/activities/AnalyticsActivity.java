@@ -67,6 +67,13 @@ public class AnalyticsActivity extends AppCompatActivity {
         loadAnalyticsData();
     }
 
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // Refresh data every time user returns to Insights
+        loadAnalyticsData();
+    }
+
     // ============ FILTERS DIALOG ============
     private void showFiltersDialog() {
         TurboExecutor.getInstance().execute(() -> {
@@ -94,125 +101,11 @@ public class AnalyticsActivity extends AppCompatActivity {
         });
     }
 
-    // ============ SENDER DETAIL DIALOG ============
-    private void showSenderDetail(String sender, int hits) {
-        TurboExecutor.getInstance().execute(() -> {
-            List<SmsMessage> allSpam = spamDao.getMessages(true);
-            List<SmsMessage> senderMessages = new ArrayList<>();
-            for (SmsMessage msg : allSpam) {
-                String normalizedSender = msg.getSender().replaceAll("[^\\d+]", "");
-                String normalizedTarget = sender.replaceAll("[^\\d+]", "");
-                if (normalizedSender.contains(normalizedTarget) || normalizedTarget.contains(normalizedSender)
-                        || msg.getSender().equalsIgnoreCase(sender)) {
-                    senderMessages.add(msg);
-                }
-            }
+    // --- REMOVED OLD DIALOG LOGIC ---
+    // User requested direct navigation to pages exactly.
 
-            mainHandler.post(() -> {
-                if (isDestroyed() || isFinishing()) return;
-
-                StringBuilder sb = new StringBuilder();
-                sb.append("<font color='#FFC107'><b>Spam blocks: </b></font><font color='#FFFFFF'>").append(hits).append("</font><br>");
-                sb.append("<font color='#80DEEA'><b>Records found: </b></font><font color='#FFFFFF'>").append(senderMessages.size()).append("</font><br><br>");
-
-                if (senderMessages.isEmpty()) {
-                    sb.append("<font color='#B0B0C0'>Messages from this sender have been purged by the AI Shredder.</font>");
-                } else {
-                    int shown = Math.min(senderMessages.size(), 2);
-                    for (int i = 0; i < shown; i++) {
-                        SmsMessage m = senderMessages.get(i);
-                        String preview = m.getBody();
-                        if (preview.length() > 80) preview = preview.substring(0, 80) + "...";
-                        sb.append("<font color='#CE93D8'><b>• </b></font><font color='#E1BEE7'>").append(preview).append("</font><br><br>");
-                    }
-                    if (senderMessages.size() > 2) {
-                        sb.append("<font color='#B0B0C0'><i>... and ").append(senderMessages.size() - 2).append(" more hidden.</i></font>");
-                    }
-                }
-
-                AlertDialog.Builder builder = new AlertDialog.Builder(AnalyticsActivity.this, R.style.DarkAlertDialog)
-                        .setTitle(android.text.Html.fromHtml("<font color='#FFC107'><b>" + sender + "</b></font>", android.text.Html.FROM_HTML_MODE_LEGACY))
-                        .setMessage(android.text.Html.fromHtml(sb.toString(), android.text.Html.FROM_HTML_MODE_LEGACY))
-                        .setPositiveButton("Close", null);
-                        
-                if (senderMessages.size() > 0) {
-                    builder.setNeutralButton("Open Vault", (dialog, which) -> {
-                        Intent intent = new Intent(AnalyticsActivity.this, SpamActivity.class);
-                        intent.putExtra("search_query", sender);
-                        startActivity(intent);
-                    });
-                }
-                builder.show();
-            });
-        });
-    }
-
-    // ============ CATEGORY DETAIL DIALOG ============
-    private void showCategoryDetail(String category, int impact) {
-        TurboExecutor.getInstance().execute(() -> {
-            List<SmsMessage> allSpam = spamDao.getMessages(true);
-            List<SmsMessage> matched = new ArrayList<>();
-
-            for (SmsMessage msg : allSpam) {
-                String body = msg.getBody().toLowerCase();
-                boolean match = false;
-                if (category.contains("Financial") && (body.contains("bank") || body.contains("account") || body.contains("blocked") || body.contains("card") || body.contains("kyc"))) {
-                    match = true;
-                } else if (category.contains("Identity") && (body.contains("otp") || body.contains("code") || body.contains("verify") || body.contains("login"))) {
-                    match = true;
-                } else if (category.contains("Delivery") && (body.contains("order") || body.contains("package") || body.contains("ship") || body.contains("track"))) {
-                    match = true;
-                } else if (category.contains("Promotional") && (body.contains("win") || body.contains("prize") || body.contains("lottery") || body.contains("offer"))) {
-                    match = true;
-                } else if (category.contains("Unknown")) {
-                    if (!(body.contains("bank") || body.contains("account") || body.contains("blocked") || body.contains("card") || body.contains("kyc")
-                            || body.contains("otp") || body.contains("code") || body.contains("verify") || body.contains("login")
-                            || body.contains("order") || body.contains("package") || body.contains("ship") || body.contains("track")
-                            || body.contains("win") || body.contains("prize") || body.contains("lottery") || body.contains("offer"))) {
-                        match = true;
-                    }
-                }
-                if (match) matched.add(msg);
-            }
-
-            mainHandler.post(() -> {
-                if (isDestroyed() || isFinishing()) return;
-
-                StringBuilder sb = new StringBuilder();
-                sb.append("<font color='#FFC107'><b>Messages classified: </b></font><font color='#FFFFFF'>").append(matched.size()).append("</font><br><br>");
-
-                if (matched.isEmpty()) {
-                    sb.append("<font color='#B0B0C0'>No matching messages found in the vault.</font>");
-                } else {
-                    int shown = Math.min(matched.size(), 2);
-                    for (int i = 0; i < shown; i++) {
-                        SmsMessage m = matched.get(i);
-                        String preview = m.getBody();
-                        if (preview.length() > 80) preview = preview.substring(0, 80) + "...";
-                        sb.append("<font color='#80DEEA'><b>• </b></font><font color='#E1BEE7'>").append(preview).append("</font><br><br>");
-                    }
-                    if (matched.size() > 2) {
-                        sb.append("<font color='#B0B0C0'><i>... and ").append(matched.size() - 2).append(" more hidden.</i></font>");
-                    }
-                }
-
-                AlertDialog.Builder builder = new AlertDialog.Builder(AnalyticsActivity.this, R.style.DarkAlertDialog)
-                        .setTitle(android.text.Html.fromHtml("<font color='#CE93D8'><b>" + category + "</b></font>", android.text.Html.FROM_HTML_MODE_LEGACY))
-                        .setMessage(android.text.Html.fromHtml(sb.toString(), android.text.Html.FROM_HTML_MODE_LEGACY))
-                        .setPositiveButton("Close", null);
-                        
-                if (matched.size() > 0) {
-                    builder.setNeutralButton("Open Vault", (dialog, which) -> {
-                        Intent intent = new Intent(AnalyticsActivity.this, SpamActivity.class);
-                        String cleanTag = category.split(" ")[1].toLowerCase();
-                        intent.putExtra("search_query", "#" + cleanTag);
-                        startActivity(intent);
-                    });
-                }
-                builder.show();
-            });
-        });
-    }
+    // --- REMOVED OLD DIALOG LOGIC ---
+    // User requested direct navigation to pages exactly.
 
     // ============ LOAD DATA ============
     private void loadAnalyticsData() {
@@ -267,29 +160,51 @@ public class AnalyticsActivity extends AppCompatActivity {
                     barHam.setLayoutParams(lpHam);
                 }
 
-                // Update Top Senders (Clickable)
+                // Update Top Senders (DIRECT NAVIGATION)
                 layoutTopSenders.removeAllViews();
                 if (topSenders.isEmpty()) {
                     addSimpleTextRow(layoutTopSenders, "No spam senders blocked yet.");
                 } else {
                     for (Pair<String, Integer> sender : topSenders) {
-                        addClickableRow(layoutTopSenders, sender.first, sender.second + " hits",
-                                () -> showSenderDetail(sender.first, sender.second));
+                        addClickableRow(layoutTopSenders, 0, sender.first, sender.second + " hits", 
+                                () -> shiftToVault("sender", sender.first));
                     }
                 }
 
-                // Update AI Spam Signatures (Clickable)
+                // Update AI Spam Signatures (DIRECT NAVIGATION + ICONS)
                 layoutTopKeywords.removeAllViews();
                 if (threatCategories.isEmpty()) {
                     addSimpleTextRow(layoutTopKeywords, "No spam signatures detected.");
                 } else {
                     for (Pair<String, Integer> category : threatCategories) {
-                        addClickableRow(layoutTopKeywords, category.first, "impact: " + category.second,
-                                () -> showCategoryDetail(category.first, category.second));
+                        int iconRes = getIconForCategory(category.first);
+                        addClickableRow(layoutTopKeywords, iconRes, category.first, "impact: " + category.second,
+                                () -> shiftToVault("category", category.first));
                     }
                 }
             });
         });
+    }
+
+    private int getIconForCategory(String category) {
+        if (category.contains("Financial")) return R.drawable.ic_bank;
+        if (category.contains("Identity")) return R.drawable.ic_security_lock;
+        if (category.contains("Delivery")) return R.drawable.ic_delivery_box;
+        if (category.contains("Promotional")) return R.drawable.ic_marketing_megaphone;
+        return R.drawable.ic_fingerprint; // Default
+    }
+
+    private void shiftToVault(String filterType, String value) {
+        Intent intent = new Intent(this, SpamActivity.class);
+        if ("sender".equals(filterType)) {
+            intent.putExtra("filter_sender", value);
+        } else {
+            // Category filter - map display text to search keywords
+            String k = value.split(" ")[0].toLowerCase();
+            intent.putExtra("filter_query", k);
+        }
+        startActivity(intent);
+        overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out);
     }
 
     // ============ UI HELPERS ============
@@ -302,23 +217,37 @@ public class AnalyticsActivity extends AppCompatActivity {
         parent.addView(tv);
     }
 
-    private void addClickableRow(LinearLayout parent, String title, String detail, Runnable onClick) {
+    private void addClickableRow(LinearLayout parent, int iconRes, String title, String detail, Runnable onClick) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setLayoutParams(new LinearLayout.LayoutParams(
+        LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 
-                LinearLayout.LayoutParams.WRAP_CONTENT));
-        row.setPadding(0, 12, 0, 12);
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        rowParams.setMargins(0, 4, 0, 4);
+        row.setLayoutParams(rowParams);
+        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        row.setPadding(0, 16, 0, 16);
         row.setClickable(true);
         row.setFocusable(true);
         row.setBackground(getDrawable(android.R.drawable.list_selector_background));
         row.setOnClickListener(v -> onClick.run());
         
+        if (iconRes != 0) {
+            android.widget.ImageView iconIv = new android.widget.ImageView(this);
+            int size = (int) (24 * getResources().getDisplayMetrics().density);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(size, size);
+            lp.setMargins(0, 0, 16, 0);
+            iconIv.setLayoutParams(lp);
+            iconIv.setImageResource(iconRes);
+            row.addView(iconIv);
+        }
+
         TextView titleTv = new TextView(this);
         titleTv.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f));
         titleTv.setText(title);
         titleTv.setTextColor(getResources().getColor(R.color.text_white));
         titleTv.setTextSize(15);
+        titleTv.setTypeface(null, android.graphics.Typeface.BOLD);
         titleTv.setMaxLines(1);
         
         TextView detailTv = new TextView(this);

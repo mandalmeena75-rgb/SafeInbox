@@ -40,6 +40,8 @@ public class ContactUtils {
     public static String getContactName(Context context, String phoneNumber) {
         if (phoneNumber == null) return null;
         String name = null;
+        
+        // PRIORITY 1: Check System Contacts (only for numeric numbers usually, but works for both)
         try {
             ContentResolver cr = context.getContentResolver();
             android.net.Uri uri = android.net.Uri.withAppendedPath(ContactsContract.PhoneLookup.CONTENT_FILTER_URI, android.net.Uri.encode(phoneNumber));
@@ -53,6 +55,14 @@ public class ContactUtils {
         } catch (Exception e) {
             e.printStackTrace();
         }
+
+        // PRIORITY 2: If not in contacts and it's an Alphanumeric Sender ID, resolve to business name
+        if (name == null && PrincipalEntityResolver.isAlphanumericSender(phoneNumber)) {
+            name = PrincipalEntityResolver.resolve(phoneNumber);
+        }
+
+        // If it's a numeric phone number and NOT in contacts, returning null allows the UI 
+        // to show the raw number instead of "Unknown".
         return name;
     }
 
@@ -77,17 +87,35 @@ public class ContactUtils {
         return number;
     }
 
+    /**
+     * Normalizes a sender address for consistent storage and matching.
+     * Uses centralized PrincipalEntityResolver to classify sender types.
+     */
     public static String normalizeSender(String sender) {
-        if (sender == null) return "";
-        // TURBO MODE: Use fast char loop instead of regex replaceAll
-        int len = sender.length();
-        StringBuilder sb = new StringBuilder(len);
-        for (int i = 0; i < len; i++) {
-            char c = sender.charAt(i);
-            if ((c >= '0' && c <= '9') || c == '+') {
-                sb.append(c);
+        if (sender == null || sender.trim().isEmpty()) return "";
+        sender = sender.trim();
+
+        if (PrincipalEntityResolver.isAlphanumericSender(sender)) {
+            // Alphanumeric sender ID (e.g. AX-IRCTC-S)
+            // Keep letters, digits, and hyphens. Uppercase for consistency.
+            StringBuilder sb = new StringBuilder(sender.length());
+            for (int i = 0; i < sender.length(); i++) {
+                char c = sender.charAt(i);
+                if (Character.isLetterOrDigit(c) || c == '-') {
+                    sb.append(Character.toUpperCase(c));
+                }
             }
+            return sb.toString();
+        } else {
+            // Numeric phone number: strip to digits and +
+            StringBuilder sb = new StringBuilder(sender.length());
+            for (int i = 0; i < sender.length(); i++) {
+                char c = sender.charAt(i);
+                if ((c >= '0' && c <= '9') || c == '+') {
+                    sb.append(c);
+                }
+            }
+            return sb.toString();
         }
-        return sb.toString();
     }
 }

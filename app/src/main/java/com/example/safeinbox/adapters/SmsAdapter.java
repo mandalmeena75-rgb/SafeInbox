@@ -10,6 +10,19 @@ import android.widget.ImageButton;
 import android.widget.PopupMenu;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.text.SpannableString;
+import android.text.Spanned;
+import android.text.method.LinkMovementMethod;
+import android.text.style.ClickableSpan;
+import android.text.style.ForegroundColorSpan;
+import android.text.style.StyleSpan;
+import android.text.style.UnderlineSpan;
+import android.graphics.Color;
+import android.graphics.Typeface;
+import android.app.AlertDialog;
+import android.content.Context;
+import android.content.Intent;
+import android.net.Uri;
 
 import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.RecyclerView;
@@ -28,6 +41,7 @@ public class SmsAdapter extends RecyclerView.Adapter<SmsAdapter.SmsViewHolder> i
 
     private static final int VIEW_TYPE_NORMAL = 0;
     private static final int VIEW_TYPE_SPAM = 1;
+    private static final int VIEW_TYPE_SUSPICIOUS = 2;
 
     private List<SmsMessage> messages;
     private List<SmsMessage> messagesFull; // Full list for filtering
@@ -53,6 +67,7 @@ public class SmsAdapter extends RecyclerView.Adapter<SmsAdapter.SmsViewHolder> i
         void onUnarchive(SmsMessage message, int position);
         void onHelpFeedback(SmsMessage message, int position);
         void onSelectionChanged(int count);
+        void onLinkClick(SmsMessage message, String url);
     }
 
     public SmsAdapter(List<SmsMessage> messages, OnMessageActionListener listener) {
@@ -63,7 +78,12 @@ public class SmsAdapter extends RecyclerView.Adapter<SmsAdapter.SmsViewHolder> i
 
     @Override
     public int getItemViewType(int position) {
-        return messages.get(position).isSpam() ? VIEW_TYPE_SPAM : VIEW_TYPE_NORMAL;
+        SmsMessage msg = messages.get(position);
+        if (msg == null) return VIEW_TYPE_NORMAL;
+        String status = msg.getClassificationStatus();
+        if ("SPAM".equals(status)) return VIEW_TYPE_SPAM;
+        if ("SUSPICIOUS".equals(status)) return VIEW_TYPE_SUSPICIOUS;
+        return VIEW_TYPE_NORMAL;
     }
 
     @Override
@@ -72,6 +92,9 @@ public class SmsAdapter extends RecyclerView.Adapter<SmsAdapter.SmsViewHolder> i
         if (viewType == VIEW_TYPE_SPAM) {
             view = LayoutInflater.from(parent.getContext())
                     .inflate(R.layout.item_sms_spam, parent, false);
+        } else if (viewType == VIEW_TYPE_SUSPICIOUS) {
+            view = LayoutInflater.from(parent.getContext())
+                    .inflate(R.layout.item_sms_suspicious, parent, false);
         } else {
             view = LayoutInflater.from(parent.getContext())
                     .inflate(R.layout.item_sms, parent, false);
@@ -135,10 +158,10 @@ public class SmsAdapter extends RecyclerView.Adapter<SmsAdapter.SmsViewHolder> i
             popup.getMenu().findItem(R.id.action_not_spam).setVisible(false);
             popup.getMenu().findItem(R.id.action_unarchive).setVisible(false);
         }
-        
-        // Always show Unblock if the message is currently blocked, even in Inbox
         if (!message.isBlocked()) {
             popup.getMenu().findItem(R.id.action_unblock).setVisible(false);
+        } else {
+            popup.getMenu().findItem(R.id.action_block).setVisible(false); // Can't block a blocked sender
         }
         
         popup.setOnMenuItemClickListener(item -> {
@@ -184,10 +207,19 @@ public class SmsAdapter extends RecyclerView.Adapter<SmsAdapter.SmsViewHolder> i
     }
 
     public void setMessages(List<SmsMessage> newMessages) {
+        // Always update the full backing list
+        this.messagesFull = new ArrayList<>(newMessages);
+        
+        // If a search filter is active, re-apply it against the new data
+        if (currentQuery != null && !currentQuery.isEmpty()) {
+            // Re-trigger the filter which will use the updated messagesFull
+            getFilter().filter(currentQuery);
+            return;
+        }
+        
         if (this.messages == null || this.messages.isEmpty()) {
             // Initial load: skip expensive DiffUtil entirely and just notify
             this.messages = new ArrayList<>(newMessages);
-            this.messagesFull = new ArrayList<>(newMessages);
             notifyDataSetChanged();
             return;
         }
@@ -199,7 +231,6 @@ public class SmsAdapter extends RecyclerView.Adapter<SmsAdapter.SmsViewHolder> i
             
             new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
                 this.messages = new ArrayList<>(newMessages);
-                this.messagesFull = new ArrayList<>(newMessages);
                 diffResult.dispatchUpdatesTo(this);
             });
         });
@@ -336,7 +367,38 @@ public class SmsAdapter extends RecyclerView.Adapter<SmsAdapter.SmsViewHolder> i
                             || body.contains("order") || body.contains("package") || body.contains("ship") || body.contains("track")
                             || body.contains("win") || body.contains("prize") || body.contains("lottery") || body.contains("offer"));
                     } else {
-                        match = sender.contains(filterPattern) || name.contains(filterPattern) || body.contains(filterPattern);
+                        // ULTRA SIMPLE SEARCH: Check everything without regex or splits
+                        String resolvedName = "";
+                        try {
+                            String resolved = com.example.safeinbox.utils.PrincipalEntityResolver.resolve(item.getSender());
+                            if (resolved != null) resolvedName = resolved.toLowerCase();
+                        } catch (Exception ignored) {}
+                        
+                        String bodyResolved = "";
+                        try {
+                            String bRes = com.example.safeinbox.utils.PrincipalEntityResolver.resolveFromBody(item.getBody());
+                            if (bRes != null) bodyResolved = bRes.toLowerCase();
+                        } catch (Exception ignored) {}
+                        
+                        // Extremely resilient check
+                        match = sender.contains(filterPattern) 
+                             || name.contains(filterPattern) 
+                             || body.contains(filterPattern) 
+                             || resolvedName.contains(filterPattern) 
+                             || bodyResolved.contains(filterPattern);
+                             
+                        // Fallback purely for numbers ignoring characters (like dashes)
+                        if (!match && filterPattern.matches(".*\\d.*")) {
+                             String safeSenderDigits = "";
+                             for (char c : sender.toCharArray()) if (Character.isDigit(c)) safeSenderDigits += c;
+                             
+                             String safeQueryDigits = "";
+                             for (char c : filterPattern.toCharArray()) if (Character.isDigit(c)) safeQueryDigits += c;
+                             
+                             if (!safeQueryDigits.isEmpty() && safeSenderDigits.contains(safeQueryDigits)) {
+                                 match = true;
+                             }
+                        }
                     }
                     
                     if (match) {
@@ -347,6 +409,7 @@ public class SmsAdapter extends RecyclerView.Adapter<SmsAdapter.SmsViewHolder> i
 
             FilterResults results = new FilterResults();
             results.values = filteredList;
+            results.count = filteredList.size();
             return results;
         }
 
@@ -369,6 +432,10 @@ public class SmsAdapter extends RecyclerView.Adapter<SmsAdapter.SmsViewHolder> i
         private final ImageButton btnMenu;
         private final ImageView imgSelected;
         private final androidx.cardview.widget.CardView cardView;
+        private final TextView avatarText;
+        private final ImageView imgAvatarPerson;
+        private final TextView typeLabel; // SERVICE tag
+        private final TextView verdictBadge;
 
         SmsViewHolder(View itemView) {
             super(itemView);
@@ -376,7 +443,11 @@ public class SmsAdapter extends RecyclerView.Adapter<SmsAdapter.SmsViewHolder> i
             bodyText = itemView.findViewById(R.id.text_body);
             dateText = itemView.findViewById(R.id.text_date);
             btnMenu = itemView.findViewById(R.id.btn_menu);
+            avatarText = itemView.findViewById(R.id.text_avatar);
+            imgAvatarPerson = itemView.findViewById(R.id.img_avatar_person);
             imgSelected = itemView.findViewById(R.id.img_selected);
+            typeLabel = itemView.findViewById(R.id.text_type_label);
+            verdictBadge = itemView.findViewById(R.id.text_verdict_badge);
             cardView = (androidx.cardview.widget.CardView) itemView;
         }
 
@@ -387,15 +458,69 @@ public class SmsAdapter extends RecyclerView.Adapter<SmsAdapter.SmsViewHolder> i
                 imgSelected.setVisibility(View.VISIBLE);
                 if (btnMenu != null) btnMenu.setVisibility(View.GONE);
             } else {
-                cardView.setCardBackgroundColor(itemView.getContext().getResources().getColor(R.color.item_background));
+                int bgColor;
+                String status = message.getClassificationStatus();
+                if ("SPAM".equals(status)) {
+                    bgColor = itemView.getContext().getResources().getColor(R.color.card_bg_dark); 
+                } else if ("SUSPICIOUS".equals(status)) {
+                    bgColor = itemView.getContext().getResources().getColor(R.color.suspicious_background);
+                } else {
+                    bgColor = itemView.getContext().getResources().getColor(R.color.item_background);
+                }
+                cardView.setCardBackgroundColor(bgColor);
                 imgSelected.setVisibility(View.GONE);
                 if (btnMenu != null) btnMenu.setVisibility(View.VISIBLE);
             }
 
+            // Bind Verdict Badge
+            if (verdictBadge != null) {
+                String status = message.getClassificationStatus();
+                int badgeColor;
+                
+                if (message.isBlocked()) {
+                    verdictBadge.setText("BLOCKED | " + status);
+                    badgeColor = itemView.getContext().getResources().getColor(R.color.error_red);
+                } else {
+                    verdictBadge.setText(status);
+                    if ("SPAM".equals(status)) {
+                        badgeColor = itemView.getContext().getResources().getColor(R.color.error_red);
+                    } else if ("SUSPICIOUS".equals(status)) {
+                        badgeColor = itemView.getContext().getResources().getColor(R.color.warning_orange);
+                    } else {
+                        badgeColor = itemView.getContext().getResources().getColor(R.color.success_green);
+                    }
+                }
+                
+                android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
+                gd.setColor(badgeColor);
+                gd.setCornerRadius(10f); // Match the label radius
+                verdictBadge.setBackground(gd);
+                verdictBadge.setVisibility(View.VISIBLE);
+            }
+
+            // Show/Hide \"SERVICE\" tag based on sender type
+            if (typeLabel != null) {
+                if (com.example.safeinbox.utils.PrincipalEntityResolver.isAlphanumericSender(message.getSender())) {
+                    typeLabel.setVisibility(View.VISIBLE);
+                } else {
+                    typeLabel.setVisibility(View.GONE);
+                }
+            }
+
             String currentName = message.getSenderName();
             if (currentName == null) {
-                // Set temporary text (sender number)
-                highlightOrSetText(senderText, message.getSender(), query);
+                // Set temporary text (sender number or ID)
+                String tempDisplay;
+                if (com.example.safeinbox.utils.PrincipalEntityResolver.isAlphanumericSender(message.getSender())) {
+                    tempDisplay = message.getSender(); // Show the ID immediately
+                } else {
+                    tempDisplay = (message.getSender() == null || message.getSender().trim().isEmpty() || message.getSender().equalsIgnoreCase("Unknown")) ? "Unknown Sender" : message.getSender();
+                }
+                if (message.isBlocked()) {
+                    tempDisplay = "🚫 [BLOCKED] " + tempDisplay;
+                }
+                highlightOrSetText(message, senderText, tempDisplay, query);
+                updateAvatar(message.getSender());
                 
                 // Fetch name in background
                 com.example.safeinbox.utils.TurboExecutor.getInstance().execute(() -> {
@@ -403,47 +528,144 @@ public class SmsAdapter extends RecyclerView.Adapter<SmsAdapter.SmsViewHolder> i
                     // CACHE NEGATIVE LOOKUP: Use empty string if not found so we don't query again
                     message.setSenderName(fetchedName != null ? fetchedName : "");
                     
+                    String resolvedName = com.example.safeinbox.utils.PrincipalEntityResolver.resolve(message.getSender());
                     String displayName;
-                    if (fetchedName != null && !fetchedName.equals(message.getSender())) {
-                        displayName = fetchedName + " (" + message.getSender() + ")";
+                    
+                    if (fetchedName != null && !fetchedName.isEmpty()) {
+                        displayName = fetchedName;
+                    } else if (resolvedName != null && !resolvedName.isEmpty()) {
+                        displayName = resolvedName;
+                    } else {
+                        // Fallback to raw ID or Number, but if both missing, try body
+                        if (message.getSender() == null || message.getSender().trim().isEmpty() || message.getSender().equalsIgnoreCase("Unknown Sender") || message.getSender().equalsIgnoreCase("Unknown")) {
+                            displayName = com.example.safeinbox.utils.PrincipalEntityResolver.resolveFromBody(message.getBody());
+                        } else {
+                            displayName = message.getSender();
+                        }
+                    }
+                    
+                    if (displayName == null) displayName = "Unknown Sender";
+                    
+                    final String finalDisplay = displayName;
+                    final String avatarName = (fetchedName != null && !fetchedName.isEmpty()) ? fetchedName : 
+                                             (displayName.equals("Unknown Sender") ? message.getSender() : displayName);
+                    
+                    String finalDisplayWithBlock = finalDisplay;
+                    if (message.isBlocked()) {
+                        finalDisplayWithBlock = "🚫 [BLOCKED] " + finalDisplay;
+                    }
+                    
+                    final String uiDisplay = finalDisplayWithBlock;
+                    
+                    itemView.post(() -> {
+                        highlightOrSetText(message, senderText, uiDisplay, query);
+                        updateAvatar(avatarName);
+                    });
+                });
+            } else {
+                String resolvedName = com.example.safeinbox.utils.PrincipalEntityResolver.resolve(message.getSender());
+                String displayName;
+                
+                if (!currentName.isEmpty()) {
+                    displayName = currentName;
+                } else if (resolvedName != null && !resolvedName.isEmpty()) {
+                    displayName = resolvedName;
+                } else {
+                    if (message.getSender() == null || message.getSender().trim().isEmpty() || message.getSender().equalsIgnoreCase("Unknown Sender") || message.getSender().equalsIgnoreCase("Unknown")) {
+                        displayName = com.example.safeinbox.utils.PrincipalEntityResolver.resolveFromBody(message.getBody());
                     } else {
                         displayName = message.getSender();
                     }
-                    
-                    if (message.isBlocked()) {
-                        displayName = "🚫 [BLOCKED] " + displayName;
-                    }
-                    
-                    final String finalDisplay = displayName;
-                    itemView.post(() -> highlightOrSetText(senderText, finalDisplay, query));
-                });
-            } else {
-                String displayName;
-                // If we cached an empty string, it means no contact was found
-                if (!currentName.isEmpty() && !currentName.equals(message.getSender())) {
-                    displayName = currentName + " (" + message.getSender() + ")";
-                } else {
-                    displayName = message.getSender();
                 }
                 
+                if (displayName == null) displayName = "Unknown Sender";
+                
+                String finalDisplayWithBlock = displayName;
                 if (message.isBlocked()) {
-                    displayName = "🚫 [BLOCKED] " + displayName;
+                    finalDisplayWithBlock = "🚫 [BLOCKED] " + displayName;
                 }
-                highlightOrSetText(senderText, displayName, query);
+                
+                highlightOrSetText(message, senderText, finalDisplayWithBlock, query);
+                updateAvatar(currentName.isEmpty() ? (displayName.equals("Unknown Sender") ? message.getSender() : displayName) : currentName);
             }
             
-            highlightOrSetText(bodyText, message.getBody(), query);
+            highlightOrSetText(message, bodyText, message.getBody(), query);
             dateText.setText(message.getFormattedDate());
+
+            // Link highlighting and safety are now handled centrally in highlightOrSetText via LinkDetector
+            bodyText.setOnClickListener(null); 
         }
 
-        private void highlightOrSetText(TextView textView, String fullText, String query) {
+        private void updateAvatar(String nameOrNumber) {
+            if (avatarText == null || imgAvatarPerson == null) return;
+            
+            if (nameOrNumber == null || nameOrNumber.isEmpty()) {
+                avatarText.setVisibility(View.GONE);
+                imgAvatarPerson.setVisibility(View.VISIBLE);
+                setAvatarColor("unknown", imgAvatarPerson.getBackground());
+                return;
+            }
+            
+            String cleanName = nameOrNumber.replace("🚫 [BLOCKED] ", "").trim();
+            if (cleanName.isEmpty()) {
+                avatarText.setVisibility(View.GONE);
+                imgAvatarPerson.setVisibility(View.VISIBLE);
+                setAvatarColor("unknown", imgAvatarPerson.getBackground());
+                return;
+            }
+            
+            avatarText.setVisibility(View.VISIBLE);
+            imgAvatarPerson.setVisibility(View.GONE);
+            
+            // Look for the first letter if possible, otherwise first character
+            String initial = cleanName.substring(0, 1).toUpperCase();
+            for (int i = 0; i < cleanName.length(); i++) {
+                if (Character.isLetter(cleanName.charAt(i))) {
+                    initial = String.valueOf(cleanName.charAt(i)).toUpperCase();
+                    break;
+                }
+            }
+            
+            avatarText.setText(initial);
+            setAvatarColor(cleanName, avatarText.getBackground());
+        }
+        
+        private void setAvatarColor(String key, android.graphics.drawable.Drawable background) {
+            int hash = key.hashCode();
+            int[] colors = {
+                0xFFE57373, 0xFFF06292, 0xFFBA68C8, 0xFF9575CD, 0xFF7986CB,
+                0xFF64B5F6, 0xFF4FC3F7, 0xFF4DD0E1, 0xFF4DB6AC, 0xFF81C784,
+                0xFFAED581, 0xFFFF8A65, 0xFFA1887F, 0xFF90A4AE
+            };
+            int color = colors[Math.abs(hash) % colors.length];
+            
+            if (background instanceof android.graphics.drawable.GradientDrawable) {
+                ((android.graphics.drawable.GradientDrawable) background.mutate()).setColor(color);
+            }
+        }
+
+        private String extractFirstUrl(String body) {
+            java.util.regex.Pattern p = java.util.regex.Pattern.compile(
+                "(https?://|www\\\\.)[a-zA-Z0-9\\\\-\\\\.]+\\\\.[a-zA-Z]{2,}(/\\\\S*)?",
+                java.util.regex.Pattern.CASE_INSENSITIVE);
+            java.util.regex.Matcher m = p.matcher(body);
+            if (m.find()) return m.group();
+            return "";
+        }
+
+        private void highlightOrSetText(SmsMessage message, TextView textView, String fullText, String query) {
             if (fullText == null) {
                 textView.setText("");
                 return;
             }
 
             if (query == null || query.isEmpty()) {
-                textView.setText(fullText);
+                com.example.safeinbox.utils.LinkDetector.applyLinkHighlighting(textView, fullText, textView.getContext(), v -> {
+                    String url = (String) v.getTag(R.id.tag_link_url);
+                    if (listener != null) {
+                        listener.onLinkClick(message, url);
+                    }
+                });
                 return;
             }
 

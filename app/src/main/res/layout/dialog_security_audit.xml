@@ -9,19 +9,19 @@
         android:layout_height="wrap_content"
         android:orientation="vertical"
         android:padding="24dp"
-        android:background="#1B1228">
+        android:background="#12081A">
 
-        <!-- Title Section -->
+        <!-- Premium Header -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:layout_marginBottom="24dp">
+            android:layout_marginBottom="20dp">
 
             <ImageView
-                android:layout_width="28dp"
-                android:layout_height="28dp"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
                 android:src="@drawable/ic_fingerprint"
                 android:contentDescription="Security Audit Icon"
                 app:tint="@color/premium_gold" />
@@ -29,73 +29,97 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text=" Security Audit"
-                android:textSize="22sp"
+                android:text=" FORENSIC AUDIT"
+                android:textSize="20sp"
                 android:textStyle="bold"
                 android:textColor="@color/premium_gold"
-                android:layout_marginStart="8dp" />
+                android:letterSpacing="0.1"
+                android:layout_marginStart="10dp" />
         </LinearLayout>
 
-        <!-- Sender Info -->
-        <TextView
-            android:id="@+id/audit_sender"
+        <!-- Sender Info Overlay Card -->
+        <androidx.cardview.widget.CardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:textSize="18sp"
-            android:textStyle="bold"
-            android:textColor="@color/text_white"
-            android:text="Name (Number)" />
+            app:cardBackgroundColor="#1E1E2E"
+            app:cardCornerRadius="16dp"
+            app:cardElevation="4dp"
+            android:layout_marginBottom="16dp">
 
-        <TextView
-            android:id="@+id/audit_date"
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <TextView
+                    android:id="@+id/audit_sender"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textSize="18sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/text_white"
+                    android:text="Name (Number)" />
+
+                <TextView
+                    android:id="@+id/audit_date"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textSize="13sp"
+                    android:textColor="@color/primary_light_purple"
+                    android:layout_marginTop="4dp"
+                    android:text="Timestamp" />
+            </LinearLayout>
+        </androidx.cardview.widget.CardView>
+
+        <!-- Message Body Card -->
+        <androidx.cardview.widget.CardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:textSize="13sp"
-            android:textColor="@color/primary_light_purple"
-            android:layout_marginTop="4dp"
-            android:text="Date" />
+            app:cardBackgroundColor="#2A1B38"
+            app:cardCornerRadius="16dp"
+            app:cardElevation="0dp"
+            android:layout_marginBottom="24dp">
 
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:background="@color/divider"
-            android:layout_marginTop="16dp"
-            android:layout_marginBottom="16dp" />
+            <TextView
+                android:id="@+id/audit_body_preview"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:padding="20dp"
+                android:textSize="16sp"
+                android:textColor="@color/text_white"
+                android:lineSpacingExtra="8dp"
+                android:textIsSelectable="true"
+                android:text="Message body goes here..." />
+        </androidx.cardview.widget.CardView>
 
-        <!-- Message Body Container -->
-        <TextView
-            android:id="@+id/audit_body_preview"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:textSize="15sp"
-            android:textColor="@color/text_white"
-            android:lineSpacingExtra="6dp"
-            android:layout_marginBottom="24dp" />
-
-        <!-- Audit Breakdown -->
+        <!-- Advanced Analytics Section -->
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="VERDICT BREAKDOWN"
-            android:textSize="11sp"
+            android:text="THREAT INTELLIGENCE"
+            android:textSize="12sp"
             android:textStyle="bold"
             android:textColor="@color/text_hint"
-            android:letterSpacing="0.15"
+            android:letterSpacing="0.2"
             android:layout_marginBottom="16dp" />
 
-        <!-- ML Score Row -->
+        <!-- AI Confidence Row -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:layout_marginBottom="20dp">
+            android:layout_marginBottom="16dp"
+            android:padding="12dp"
+            android:background="@drawable/bg_label_outline">
+            
             <RelativeLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="AI Classifier Confidence"
+                    android:text="AI Decision Confidence"
                     android:textSize="14sp"
                     android:textColor="#E1BEE7" />
                 <TextView
@@ -112,44 +136,105 @@
                 android:id="@+id/audit_ml_progress"
                 style="?android:attr/progressBarStyleHorizontal"
                 android:layout_width="match_parent"
-                android:layout_height="6dp"
+                android:layout_height="4dp"
                 android:layout_marginTop="8dp"
-                android:progressDrawable="@android:drawable/progress_horizontal"
                 android:progressTint="@color/frost_blue_soft" />
         </LinearLayout>
 
-        <!-- Keyword Strength Row -->
+        <!-- Link Safety Display (Realistic Feature) -->
+        <androidx.cardview.widget.CardView
+            android:id="@+id/audit_link_status_card"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            app:cardBackgroundColor="#1A2D2E"
+            app:cardCornerRadius="12dp"
+            android:layout_marginBottom="16dp">
+            
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:padding="12dp"
+                android:gravity="center_vertical">
+                
+                <ImageView
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    android:src="@android:drawable/ic_menu_share"
+                    app:tint="@color/accent_cyan" />
+                    
+                <TextView
+                    android:id="@+id/audit_link_score"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginStart="12dp"
+                    android:text="No suspicious links detected."
+                    android:textSize="13sp"
+                    android:textColor="@color/accent_cyan" />
+            </LinearLayout>
+        </androidx.cardview.widget.CardView>
+
+        <!-- Urgency Row -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:layout_marginBottom="20dp">
+            android:layout_marginBottom="16dp"
+            android:padding="12dp">
             <RelativeLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Suspicious Keywords"
+                    android:text="Threat Urgency Level"
                     android:textSize="14sp"
                     android:textColor="#E1BEE7" />
                 <TextView
-                    android:id="@+id/audit_keyword_score"
+                    android:id="@+id/audit_urgency_score"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_alignParentEnd="true"
                     android:textSize="14sp"
                     android:textStyle="bold"
-                    android:textColor="@color/premium_gold"
-                    android:text="Low" />
+                    android:textColor="@color/error_red"
+                    android:text="Normal" />
             </RelativeLayout>
             <ProgressBar
-                android:id="@+id/audit_keyword_progress"
+                android:id="@+id/audit_urgency_progress"
                 style="?android:attr/progressBarStyleHorizontal"
                 android:layout_width="match_parent"
-                android:layout_height="6dp"
+                android:layout_height="4dp"
                 android:layout_marginTop="8dp"
-                android:progressTint="@color/premium_gold" />
+                android:progressTint="@color/error_red" />
+        </LinearLayout>
+
+        <!-- Link Depth Row -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginBottom="16dp"
+            android:padding="12dp">
+            <RelativeLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Link Safety Depth"
+                    android:textSize="14sp"
+                    android:textColor="#E1BEE7" />
+                <ProgressBar
+                    android:id="@+id/audit_link_progress"
+                    style="?android:attr/progressBarStyleHorizontal"
+                    android:layout_width="60dp"
+                    android:layout_height="4dp"
+                    android:layout_alignParentEnd="true"
+                    android:layout_centerVertical="true"
+                    android:progressTint="@color/accent_cyan" />
+            </RelativeLayout>
         </LinearLayout>
 
         <!-- Sender History Row -->
@@ -157,14 +242,15 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:layout_marginBottom="24dp">
+            android:layout_marginBottom="24dp"
+            android:padding="12dp">
             <RelativeLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Sender Reputation"
+                    android:text="Sender Local Reputation"
                     android:textSize="14sp"
                     android:textColor="#E1BEE7" />
                 <TextView
@@ -181,35 +267,35 @@
                 android:id="@+id/audit_history_progress"
                 style="?android:attr/progressBarStyleHorizontal"
                 android:layout_width="match_parent"
-                android:layout_height="6dp"
+                android:layout_height="4dp"
                 android:layout_marginTop="8dp"
                 android:progressTint="@color/primary_light_purple" />
         </LinearLayout>
 
-        <!-- Final Verdict -->
+        <!-- Final Decision Card -->
         <androidx.cardview.widget.CardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            app:cardBackgroundColor="#2A1B38"
-            app:cardCornerRadius="12dp"
-            app:cardElevation="0dp"
-            android:layout_marginBottom="24dp">
+            app:cardBackgroundColor="#2D1212"
+            app:cardCornerRadius="16dp"
+            app:cardElevation="8dp"
+            android:layout_marginBottom="32dp">
             
             <TextView
                 android:id="@+id/audit_final_verdict"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:padding="16dp"
-                android:textSize="15sp"
+                android:padding="18dp"
+                android:textSize="16sp"
                 android:textStyle="bold"
                 android:textColor="@color/error_red"
-                android:text="VERDICT: Analyzing..."
-                android:gravity="center" />
+                android:text="DECISION: ANALYZING..."
+                android:gravity="center"
+                android:letterSpacing="0.05" />
         </androidx.cardview.widget.CardView>
 
-        <!-- Custom Action Buttons -->
+        <!-- Actions -->
         <LinearLayout
-            android:id="@+id/audit_action_container"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical">
@@ -224,41 +310,43 @@
                     android:id="@+id/btn_audit_negative"
                     style="@style/SafeInbox.Button.Ghost"
                     android:layout_width="0dp"
-                    android:layout_height="wrap_content"
+                    android:layout_height="56dp"
                     android:layout_weight="1"
                     android:layout_marginEnd="8dp"
-                    android:text="Not Spam" />
+                    android:text="MARK HAM" />
                     
                 <Button
                     android:id="@+id/btn_audit_positive"
                     style="@style/SafeInbox.Button"
                     android:layout_width="0dp"
-                    android:layout_height="wrap_content"
+                    android:layout_height="56dp"
                     android:layout_weight="1"
                     android:layout_marginStart="8dp"
-                    android:text="Mark Spam" />
+                    android:text="MARK SPAM" />
             </LinearLayout>
 
             <Button
                 android:id="@+id/btn_audit_block"
                 style="@style/SafeInbox.Button.Ghost"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
+                android:layout_height="56dp"
                 app:strokeColor="@color/error_red"
                 android:textColor="@color/error_red"
-                android:text="🚫 Block Sender" />
+                android:text="🚫 BLOCK SENDER permanently" />
                 
-            <Button
+            <TextView
                 android:id="@+id/btn_audit_cancel"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:background="?attr/selectableItemBackground"
-                android:textColor="@color/text_grey"
-                android:textAllCaps="false"
+                android:layout_marginTop="20dp"
+                android:gravity="center"
+                android:padding="16dp"
+                android:textColor="@color/primary_light_purple"
+                android:text="← Return to Vault"
+                android:textSize="14sp"
                 android:textStyle="bold"
-                android:textSize="15sp"
-                android:text="Cancel &amp; Close" />
+                android:letterSpacing="0.1"
+                android:background="?attr/selectableItemBackground" />
         </LinearLayout>
 
     </LinearLayout>

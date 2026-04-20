@@ -10,17 +10,23 @@ import android.view.View;
 import android.widget.EditText;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.widget.ProgressBar;
+import android.view.LayoutInflater;
 
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
+import androidx.activity.OnBackPressedCallback;
 
 import com.example.safeinbox.R;
 import com.example.safeinbox.adapters.SmsAdapter;
 import com.example.safeinbox.database.SpamDao;
 import com.example.safeinbox.models.SmsMessage;
 import com.example.safeinbox.utils.Constants;
+import com.example.safeinbox.detection.SpamScoreEngine;
+import com.example.safeinbox.detection.SpamDetector;
+import com.example.safeinbox.models.ClassificationResult;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -39,6 +45,7 @@ public class ArchiveActivity extends AppCompatActivity implements SmsAdapter.OnM
     private SmsAdapter adapter;
     private TextView emptyText;
     private SpamDao spamDao;
+    private volatile SpamScoreEngine spamScoreEngine;
     private final ExecutorService bgExecutor = Executors.newSingleThreadExecutor();
 
     private View headerStandard, headerSelection;
@@ -99,6 +106,22 @@ public class ArchiveActivity extends AppCompatActivity implements SmsAdapter.OnM
         setupSelectionToolbar();
 
         bgExecutor.execute(this::loadArchivedMessages);
+        setupBackNavigation();
+    }
+
+    private void setupBackNavigation() {
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                if (adapter != null && adapter.isSelectionMode()) {
+                    adapter.clearSelection();
+                } else {
+                    setEnabled(false);
+                    getOnBackPressedDispatcher().onBackPressed();
+                    setEnabled(true);
+                }
+            }
+        });
     }
 
     @Override
@@ -208,6 +231,130 @@ public class ArchiveActivity extends AppCompatActivity implements SmsAdapter.OnM
     }
 
     @Override
+    public void onMessageClick(SmsMessage message, int position) {
+        showSecurityAuditDialog(message, position);
+    }
+
+    private void showSecurityAuditDialog(SmsMessage message, int position) {
+        if (isFinishing() || isDestroyed()) return;
+
+        android.view.LayoutInflater inflater = android.view.LayoutInflater.from(this);
+        View view = inflater.inflate(R.layout.dialog_security_audit, null);
+
+        TextView senderTv = view.findViewById(R.id.audit_sender);
+        TextView dateTv = view.findViewById(R.id.audit_date);
+        TextView bodyTv = view.findViewById(R.id.audit_body_preview);
+        
+        TextView mlScoreTv = view.findViewById(R.id.audit_ml_score);
+        ProgressBar mlProgress = view.findViewById(R.id.audit_ml_progress);
+        
+        TextView urgencyTv = view.findViewById(R.id.audit_urgency_score);
+        ProgressBar urgencyProgress = view.findViewById(R.id.audit_urgency_progress);
+        
+        TextView historyScoreTv = view.findViewById(R.id.audit_history_score);
+        ProgressBar historyProgress = view.findViewById(R.id.audit_history_progress);
+        
+        TextView verdictTv = view.findViewById(R.id.audit_final_verdict);
+        TextView linkInfoTv = view.findViewById(R.id.audit_link_score);
+        ProgressBar linkProgress = view.findViewById(R.id.audit_link_progress);
+
+        senderTv.setText(message.getSenderName() != null ? message.getSenderName() + " (" + message.getSender() + ")" : message.getSender());
+        dateTv.setText(message.getFormattedDate());
+        
+        com.example.safeinbox.utils.LinkDetector.applyLinkHighlighting(bodyTv, message.getBody(), this, v -> {
+            String url = (String) v.getTag(R.id.tag_link_url);
+            com.example.safeinbox.utils.LinkDetector.showLinkSafetyPopup(this, url);
+        });
+
+        AlertDialog dialog = new AlertDialog.Builder(this, R.style.DarkAlertDialog)
+                .setView(view)
+                .create();
+
+        // Read-only Forensic mode for Archive
+        view.findViewById(R.id.btn_audit_positive).setEnabled(false);
+        view.findViewById(R.id.btn_audit_negative).setEnabled(false);
+        view.findViewById(R.id.btn_audit_block).setOnClickListener(v -> {
+            dialog.dismiss();
+            Toast.makeText(this, "Unarchive first to block", Toast.LENGTH_SHORT).show();
+        });
+        
+        view.findViewById(R.id.btn_audit_cancel).setOnClickListener(v -> dialog.dismiss());
+        dialog.show();
+
+        bgExecutor.execute(() -> {
+            if (spamScoreEngine == null) {
+                com.example.safeinbox.detection.SpamDetector sd = com.example.safeinbox.detection.SpamDetector.getInstance(this);
+                spamScoreEngine = new com.example.safeinbox.detection.SpamScoreEngine(this, (com.example.safeinbox.detection.MLClassifier) sd.getClassifier());
+            }
+            
+            String[] words = message.getBody().toLowerCase().split("\\s+");
+            com.example.safeinbox.models.ClassificationResult result = spamScoreEngine.classify(message.getSender(), message.getBody(), words);
+            
+            safePostToUi(() -> {
+                mlScoreTv.setText(result.mlScore + "% confidence");
+                mlProgress.setProgress(result.mlScore);
+                urgencyProgress.setProgress(result.urgencyScore);
+                historyProgress.setProgress(result.historyScore * 5);
+                
+                verdictTv.setText("AUDIT VERDICT: " + result.status);
+                if (result.status == com.example.safeinbox.models.ClassificationResult.Status.SPAM) {
+                    verdictTv.setTextColor(getResources().getColor(R.color.error_red));
+                } else {
+                    verdictTv.setTextColor(getResources().getColor(R.color.success_green));
+                }
+
+                // Advanced Link Safety Mapping
+                linkProgress.setProgress(100 - result.linkScore);
+                
+                // --- ADVANCED VISUALIZATION UPGRADE ---
+                androidx.cardview.widget.CardView verdictCard = (androidx.cardview.widget.CardView) verdictTv.getParent();
+                
+                String verdictText = "DECISION: " + result.status;
+                int verdictColor = getResources().getColor(R.color.success_green);
+                int cardBg = 0xFF1B382A; // Dark Emerald
+
+                switch (result.status) {
+                    case SPAM:
+                        verdictColor = getResources().getColor(R.color.error_red);
+                        cardBg = 0xFF2D1212; // Dark Red
+                        break;
+                    case SUSPICIOUS:
+                        verdictColor = getResources().getColor(R.color.warning_orange);
+                        cardBg = 0xFF2D251B; // Dark Brown
+                        break;
+                    case OTP:
+                        verdictColor = getResources().getColor(R.color.primary_light_purple);
+                        cardBg = 0xFF1D1B38; // Dark Purple
+                        verdictText = "🔒 SECURE OTP DETECTED";
+                        break;
+                    case SERVICE:
+                        verdictColor = getResources().getColor(R.color.accent_cyan);
+                        cardBg = 0xFF102A2B; // Dark Cyan
+                        verdictText = "📡 VERIFIED SERVICE";
+                        break;
+                }
+
+                verdictTv.setText(verdictText);
+                verdictTv.setTextColor(verdictColor);
+                verdictCard.setCardBackgroundColor(cardBg);
+
+                if (result.isRiskyLink) {
+                    ((TextView)view.findViewById(R.id.audit_link_score)).setText(result.reason);
+                    ((TextView)view.findViewById(R.id.audit_link_score)).setTextColor(getResources().getColor(R.color.error_red));
+                } else {
+                    ((TextView)view.findViewById(R.id.audit_link_score)).setText(result.reason != null && !result.reason.isEmpty() ? result.reason : "✅ Link identity verified.");
+                    ((TextView)view.findViewById(R.id.audit_link_score)).setTextColor(verdictColor);
+                }
+            });
+        });
+    }
+
+    @Override
+    public void onLinkClick(SmsMessage message, String url) {
+        com.example.safeinbox.utils.LinkDetector.showLinkSafetyPopup(this, url);
+    }
+
+    @Override
     public void onSelectionChanged(int count) {
         if (count > 0) {
             headerStandard.setVisibility(View.GONE);
@@ -217,12 +364,6 @@ public class ArchiveActivity extends AppCompatActivity implements SmsAdapter.OnM
             headerStandard.setVisibility(View.VISIBLE);
             headerSelection.setVisibility(View.GONE);
         }
-    }
-
-    @Override
-    public void onMessageClick(SmsMessage message, int position) {
-        // Show details (audits might be stale or not applicable, but basic info is fine)
-        Toast.makeText(this, "Sender: " + message.getSender(), Toast.LENGTH_SHORT).show();
     }
 
     @Override
@@ -245,7 +386,19 @@ public class ArchiveActivity extends AppCompatActivity implements SmsAdapter.OnM
                 .setPositiveButton("Delete", (d, w) -> {
                     adapter.removeMessageById(message.getId());
                     if (adapter.getItemCount() == 0) emptyText.setVisibility(View.VISIBLE);
-                    bgExecutor.execute(() -> spamDao.deleteMessageById(message.getId()));
+                    bgExecutor.execute(() -> {
+                        // 1. Remove from archive tracking set
+                        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+                        Set<String> archived = new HashSet<>(prefs.getStringSet(Constants.KEY_ARCHIVED_DEDUP_IDS, new HashSet<>()));
+                        if (message.getDedupId() != null) {
+                            archived.remove(message.getDedupId());
+                            prefs.edit().putStringSet(Constants.KEY_ARCHIVED_DEDUP_IDS, archived).apply();
+                        }
+                        // 2. Delete the actual message from DB
+                        spamDao.deleteMessageById(message.getId());
+                        // 3. Reload
+                        loadArchivedMessages();
+                    });
                     Toast.makeText(this, "🗑️ Deleted", Toast.LENGTH_SHORT).show();
                 })
                 .setNegativeButton("Cancel", null)
@@ -271,6 +424,7 @@ public class ArchiveActivity extends AppCompatActivity implements SmsAdapter.OnM
                             archived.remove(message.getDedupId());
                             prefs.edit().putStringSet(Constants.KEY_ARCHIVED_DEDUP_IDS, archived).apply();
                         }
+                        loadArchivedMessages();
                     });
                     Toast.makeText(this, "📦 Message unarchived", Toast.LENGTH_SHORT).show();
                 })
@@ -279,14 +433,11 @@ public class ArchiveActivity extends AppCompatActivity implements SmsAdapter.OnM
     }
 
     @Override
-    public void onHelpFeedback(SmsMessage message, int position) {}
-
-    @Override
-    public void onBackPressed() {
-        if (adapter.isSelectionMode()) {
-            adapter.clearSelection();
-        } else {
-            super.onBackPressed();
-        }
+    public void onHelpFeedback(SmsMessage message, int position) {
+        new AlertDialog.Builder(this, R.style.DarkAlertDialog)
+                .setTitle("ℹ️ Help & Feedback")
+                .setMessage("SafeInbox Forensic Audit provides deep insight into message trust.")
+                .setPositiveButton("Got it", null)
+                .show();
     }
 }
