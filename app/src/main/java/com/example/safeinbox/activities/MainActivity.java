@@ -47,6 +47,9 @@ public class MainActivity extends AppCompatActivity {
 
         setupViewPager();
         
+        // --- FORENSIC RESCAN TRIGGER ---
+        checkAndRescanProject();
+
         binding.fabLogout.setOnClickListener(v -> {
             sessionManager.logout();
             startActivity(new Intent(this, LoginActivity.class));
@@ -55,6 +58,33 @@ public class MainActivity extends AppCompatActivity {
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
             ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.READ_CONTACTS}, CONTACTS_PERMISSION_CODE);
+        }
+    }
+
+    private void checkAndRescanProject() {
+        android.content.SharedPreferences prefs = getSharedPreferences(com.example.safeinbox.utils.Constants.PREFS_NAME, MODE_PRIVATE);
+        int lastRescannedVersion = prefs.getInt("last_engine_rescan_version", 0);
+
+        if (lastRescannedVersion < com.example.safeinbox.utils.Constants.CURRENT_ENGINE_VERSION) {
+            Toast.makeText(this, "🛡️ Starting Forensic Audit...", Toast.LENGTH_SHORT).show();
+            
+            com.example.safeinbox.utils.TurboExecutor.getInstance().execute(() -> {
+                android.util.Log.i("MainActivity", "Starting Project-Wide Rescan for Engine v" + com.example.safeinbox.utils.Constants.CURRENT_ENGINE_VERSION);
+                com.example.safeinbox.database.SpamDao dao = new com.example.safeinbox.database.SpamDao(this);
+                com.example.safeinbox.detection.SpamDetector detector = com.example.safeinbox.detection.SpamDetector.getInstance(this);
+                
+                dao.reclassifyProjectWide(detector);
+                
+                prefs.edit().putInt("last_engine_rescan_version", com.example.safeinbox.utils.Constants.CURRENT_ENGINE_VERSION).apply();
+                android.util.Log.i("MainActivity", "Project-Wide Rescan Completed.");
+                
+                // --- NOTIFY UI TO REFRESH ---
+                new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
+                    Toast.makeText(this, "✅ Forensic Audit Complete. Messages Shifted.", Toast.LENGTH_SHORT).show();
+                    Intent intent = new Intent(com.example.safeinbox.utils.Constants.ACTION_DATABASE_RESCANNED);
+                    androidx.localbroadcastmanager.content.LocalBroadcastManager.getInstance(this).sendBroadcast(intent);
+                });
+            });
         }
     }
 

@@ -50,6 +50,7 @@ public class DBHelper extends SQLiteOpenHelper {
                 + Constants.COL_DEDUP_ID + " TEXT, "
                 + Constants.COL_CLASSIFICATION_STATUS + " TEXT, "
                 + Constants.COL_HAS_RISKY_LINK + " INTEGER DEFAULT 0, "
+                + Constants.COL_SCORE + " INTEGER DEFAULT 0, "
                 + "UNIQUE(" + Constants.COL_DEDUP_ID + "))";
         db.execSQL(createMessages);
 
@@ -160,6 +161,16 @@ public class DBHelper extends SQLiteOpenHelper {
                 Log.d(TAG, "v11 migration: classification columns added");
             } catch (Exception e) {
                 Log.e(TAG, "v11 migration failed", e);
+            }
+        }
+        
+        if (oldVersion < 12) {
+            // v12: Add score column to messages
+            try {
+                db.execSQL("ALTER TABLE " + Constants.TABLE_MESSAGES + " ADD COLUMN " + Constants.COL_SCORE + " INTEGER DEFAULT 0");
+                Log.d(TAG, "v12 migration: score column added");
+            } catch (Exception e) {
+                Log.e(TAG, "v12 migration failed", e);
             }
         }
     }

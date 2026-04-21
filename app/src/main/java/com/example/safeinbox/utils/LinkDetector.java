@@ -30,7 +30,7 @@ public class LinkDetector {
 
     // Advanced regex provided by user: detects http, https, www, and raw domains like i.airtel.in
     private static final Pattern URL_PATTERN = Pattern.compile(
-            "(https?://)?([a-zA-Z0-9.-]+\\.[a-zA-Z]{2,})(\\/\\S*)?",
+            "(https?://[\\w.-]+|www\\.[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}|[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,})(/\\S*)?",
             Pattern.CASE_INSENSITIVE
     );
 
@@ -66,9 +66,10 @@ public class LinkDetector {
             String domain = getDomain(url).toLowerCase();
             boolean isShortened = SHORTENER_DOMAINS.contains(domain);
             
-            // To avoid false positives (like "file.name" or "v1.0"), we should ensure 
-            // the domain has at least one dot and the TLD is not just numbers.
-            if (domain.contains(".") && !domain.matches(".*\\d+$")) {
+            // If it starts with a protocol, we trust it more. 
+            // If raw domain, it MUST have a dot and not be just an IP-like number.
+            boolean hasProtocol = url.toLowerCase().startsWith("http");
+            if (hasProtocol || (domain.contains(".") && !domain.matches(".*\\d+$"))) {
                 links.add(new DetectedLink(url, matcher.start(), matcher.end(), isShortened));
             }
         }

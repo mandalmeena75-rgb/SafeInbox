@@ -17,9 +17,11 @@ public class SmsMessage {
     private String classificationStatus; // SAFE, SUSPICIOUS, SPAM
     private boolean hasRiskyLink;
     private boolean isBlocked;
+    private int score; // New production field
 
     public SmsMessage() {
         this.classificationStatus = "SAFE";
+        this.score = 0;
     }
 
     public SmsMessage(String sender, String body, long date) {
@@ -113,6 +115,14 @@ public class SmsMessage {
 
     public void setDate(long date) {
         this.date = date;
+    }
+
+    public int getScore() {
+        return score;
+    }
+
+    public void setScore(int score) {
+        this.score = score;
     }
 
     // Helper for UI formatting

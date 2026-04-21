@@ -63,6 +63,7 @@ public class InboxActivity extends AppCompatActivity implements SmsAdapter.OnMes
 
     private SmsObserver smsObserver;
     private RcsMessageReceiver rcsReceiver;
+    private BroadcastReceiver rescanReceiver;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     private View headerStandard, headerSelection;
@@ -148,6 +149,16 @@ public class InboxActivity extends AppCompatActivity implements SmsAdapter.OnMes
         IntentFilter filter = new IntentFilter(SmsNotificationListener.ACTION_RCS_MESSAGE_RECEIVED);
         androidx.core.content.ContextCompat.registerReceiver(this, rcsReceiver, filter, androidx.core.content.ContextCompat.RECEIVER_EXPORTED);
 
+        // --- DATABASE RESCAN LISTENER ---
+        rescanReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                bgExecutor.execute(() -> loadMessages());
+            }
+        };
+        androidx.localbroadcastmanager.content.LocalBroadcastManager.getInstance(this).registerReceiver(rescanReceiver, 
+                new IntentFilter(com.example.safeinbox.utils.Constants.ACTION_DATABASE_RESCANNED));
+
         setupBackNavigation();
     }
 
@@ -171,7 +182,6 @@ public class InboxActivity extends AppCompatActivity implements SmsAdapter.OnMes
         super.onResume();
         bgExecutor.execute(() -> {
             spamDao.repairCorruptedMessages();
-            spamDao.moveSafeMessagesToInbox();
             loadMessages();
         });
     }
@@ -182,6 +192,9 @@ public class InboxActivity extends AppCompatActivity implements SmsAdapter.OnMes
         if (smsObserver != null) getContentResolver().unregisterContentObserver(smsObserver);
         if (rcsReceiver != null) {
             try { unregisterReceiver(rcsReceiver); } catch (Exception ignored) {}
+        }
+        if (rescanReceiver != null) {
+            androidx.localbroadcastmanager.content.LocalBroadcastManager.getInstance(this).unregisterReceiver(rescanReceiver);
         }
     }
 
@@ -331,6 +344,26 @@ public class InboxActivity extends AppCompatActivity implements SmsAdapter.OnMes
                 urgencyProgress.setProgress(res.urgencyScore);
                 historyProgress.setProgress(res.historyScore * 5);
                 historyScoreTv.setText(res.contactWeight < 0 ? "Trusted Contact" : (res.historyScore > 10 ? "Known Spammer" : "Neutral"));
+                
+                // --- AUTO-PURGE LOGIC ---
+                // If the forensic engine detects SPAM, and it's currently in the Inbox,
+                // we move it out IMMEDIATELY to avoid "Detects spam but still in inbox" bug.
+                if (res.status == ClassificationResult.Status.SPAM) {
+                    bgExecutor.execute(() -> {
+                        spamDao.updateSpamStatus(message.getId(), true);
+                        // Also update score and status details for consistency
+                        android.content.ContentValues v = new android.content.ContentValues();
+                        v.put(com.example.safeinbox.utils.Constants.COL_CLASSIFICATION_STATUS, "SPAM");
+                        v.put(com.example.safeinbox.utils.Constants.COL_SCORE, res.totalScore);
+                        spamDao.updateMessageFields(message.getId(), v);
+                    });
+                    
+                    // Remove from UI immediately after the user closes the dialog or during display
+                    // Actually, removing from adapter while dialog is open is fine.
+                    adapter.removeMessageById(message.getId());
+                    checkEmptyState();
+                }
+
                 verdictTv.setText("AUDIT VERDICT: " + res.status);
                 verdictTv.setTextColor(getResources().getColor(res.status == ClassificationResult.Status.SPAM ? R.color.error_red : R.color.success_green));
                 

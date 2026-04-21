@@ -4,7 +4,11 @@ public class Constants {
 
     // Database
     public static final String DB_NAME = "safeinbox.db";
-    public static final int DB_VERSION = 11;
+    public static final int DB_VERSION = 12;
+    public static final int CURRENT_ENGINE_VERSION = 4; // Bumped to 4 for production-grade engine overhaul
+    
+    // Broadcasts
+    public static final String ACTION_DATABASE_RESCANNED = "com.example.safeinbox.DATABASE_RESCANNED";
 
     // Table: messages
     public static final String TABLE_MESSAGES = "messages";
@@ -18,6 +22,7 @@ public class Constants {
     public static final String COL_DEDUP_ID = "dedup_id";
     public static final String COL_CLASSIFICATION_STATUS = "classification_status";
     public static final String COL_HAS_RISKY_LINK = "has_risky_link";
+    public static final String COL_SCORE = "score";
 
     // Table: spam_numbers
     public static final String TABLE_SPAM_NUMBERS = "spam_numbers";

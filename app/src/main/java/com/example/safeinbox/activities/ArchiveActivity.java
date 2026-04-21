@@ -107,6 +107,16 @@ public class ArchiveActivity extends AppCompatActivity implements SmsAdapter.OnM
 
         bgExecutor.execute(this::loadArchivedMessages);
         setupBackNavigation();
+        
+        // --- DATABASE RESCAN LISTENER ---
+        android.content.BroadcastReceiver rescanReceiver = new android.content.BroadcastReceiver() {
+            @Override
+            public void onReceive(android.content.Context context, android.content.Intent intent) {
+                bgExecutor.execute(() -> loadArchivedMessages());
+            }
+        };
+        androidx.localbroadcastmanager.content.LocalBroadcastManager.getInstance(this).registerReceiver(rescanReceiver, 
+                new android.content.IntentFilter(com.example.safeinbox.utils.Constants.ACTION_DATABASE_RESCANNED));
     }
 
     private void setupBackNavigation() {
@@ -183,34 +193,8 @@ public class ArchiveActivity extends AppCompatActivity implements SmsAdapter.OnM
 
     private void loadArchivedMessages() {
         try {
-            SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-            Set<String> archivedIds = prefs.getStringSet(Constants.KEY_ARCHIVED_DEDUP_IDS, new HashSet<>());
-
-            if (archivedIds.isEmpty()) {
-                safePostToUi(() -> {
-                    adapter.setMessages(new ArrayList<>());
-                    emptyText.setVisibility(View.VISIBLE);
-                    recyclerView.setVisibility(View.GONE);
-                    if (swipeRefreshLayout.isRefreshing()) swipeRefreshLayout.setRefreshing(false);
-                });
-                return;
-            }
-
-            // Load all messages from DB (both spam and ham)
-            List<SmsMessage> hamMessages = spamDao.getMessages(false);
-            List<SmsMessage> spamMessages = spamDao.getMessages(true);
-
-            List<SmsMessage> archivedList = new ArrayList<>();
-            for (SmsMessage msg : hamMessages) {
-                if (msg.getDedupId() != null && archivedIds.contains(msg.getDedupId())) {
-                    archivedList.add(msg);
-                }
-            }
-            for (SmsMessage msg : spamMessages) {
-                if (msg.getDedupId() != null && archivedIds.contains(msg.getDedupId())) {
-                    archivedList.add(msg);
-                }
-            }
+            // Load messages that specifically belong to the Archive Vault
+            List<SmsMessage> archivedList = spamDao.getArchivedMessages();
 
             safePostToUi(() -> {
                 adapter.setMessages(archivedList);
@@ -270,12 +254,18 @@ public class ArchiveActivity extends AppCompatActivity implements SmsAdapter.OnM
                 .setView(view)
                 .create();
 
-        // Read-only Forensic mode for Archive
-        view.findViewById(R.id.btn_audit_positive).setEnabled(false);
-        view.findViewById(R.id.btn_audit_negative).setEnabled(false);
+        // Forensic mode for Archive (Persistent)
+        view.findViewById(R.id.btn_audit_positive).setOnClickListener(v -> {
+            dialog.dismiss();
+            onMarkSpam(message, position);
+        });
+        view.findViewById(R.id.btn_audit_negative).setOnClickListener(v -> {
+            dialog.dismiss();
+            onMarkNotSpam(message, position);
+        });
         view.findViewById(R.id.btn_audit_block).setOnClickListener(v -> {
             dialog.dismiss();
-            Toast.makeText(this, "Unarchive first to block", Toast.LENGTH_SHORT).show();
+            onBlockReport(message, position);
         });
         
         view.findViewById(R.id.btn_audit_cancel).setOnClickListener(v -> dialog.dismiss());
@@ -367,13 +357,71 @@ public class ArchiveActivity extends AppCompatActivity implements SmsAdapter.OnM
     }
 
     @Override
-    public void onMarkSpam(SmsMessage message, int position) {}
+    public void onMarkSpam(SmsMessage message, int position) {
+        adapter.removeMessageById(message.getId());
+        if (adapter.getItemCount() == 0) emptyText.setVisibility(View.VISIBLE);
+        
+        bgExecutor.execute(() -> {
+            // 1. Remove from archive
+            SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+            Set<String> archived = new HashSet<>(prefs.getStringSet(Constants.KEY_ARCHIVED_DEDUP_IDS, new HashSet<>()));
+            if (message.getDedupId() != null) {
+                archived.remove(message.getDedupId());
+                prefs.edit().putStringSet(Constants.KEY_ARCHIVED_DEDUP_IDS, archived).apply();
+            }
+            // 2. Mark as Spam in DB
+            spamDao.updateSpamStatus(message.getId(), true);
+            spamDao.addSpamNumber(message.getSender());
+            spamDao.insertFeedback(message.getId(), Constants.LABEL_SPAM);
+            // 3. Reload
+            loadArchivedMessages();
+        });
+        Toast.makeText(this, "🚫 Moved to Spam Vault", Toast.LENGTH_SHORT).show();
+    }
 
     @Override
-    public void onBlockReport(SmsMessage message, int position) {}
+    public void onBlockReport(SmsMessage message, int position) {
+        new AlertDialog.Builder(this, R.style.DarkAlertDialog)
+                .setTitle("🚫 Block & Report Archive")
+                .setMessage("All messages from this sender will be removed from archives and permanently blocked.")
+                .setPositiveButton("Block & Shred", (d, w) -> {
+                    adapter.removeMessageById(message.getId());
+                    if (adapter.getItemCount() == 0) emptyText.setVisibility(View.VISIBLE);
+                    bgExecutor.execute(() -> {
+                        // 1. Remove from archive
+                        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+                        Set<String> archived = new HashSet<>(prefs.getStringSet(Constants.KEY_ARCHIVED_DEDUP_IDS, new HashSet<>()));
+                        if (message.getDedupId() != null) archived.remove(message.getDedupId());
+                        prefs.edit().putStringSet(Constants.KEY_ARCHIVED_DEDUP_IDS, archived).apply();
+                        
+                        // 2. Block
+                        spamDao.blockAndReportBatch(message.getId(), message.getSender());
+                        loadArchivedMessages();
+                    });
+                })
+                .setNegativeButton("Cancel", null).show();
+    }
 
     @Override
-    public void onMarkNotSpam(SmsMessage message, int position) {}
+    public void onMarkNotSpam(SmsMessage message, int position) {
+        adapter.removeMessageById(message.getId());
+        if (adapter.getItemCount() == 0) emptyText.setVisibility(View.VISIBLE);
+        
+        bgExecutor.execute(() -> {
+            // 1. Remove from archive
+            SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+            Set<String> archived = new HashSet<>(prefs.getStringSet(Constants.KEY_ARCHIVED_DEDUP_IDS, new HashSet<>()));
+            if (message.getDedupId() != null) {
+                archived.remove(message.getDedupId());
+                prefs.edit().putStringSet(Constants.KEY_ARCHIVED_DEDUP_IDS, archived).apply();
+            }
+            // 2. Mark as Safe in DB
+            spamDao.updateSpamStatus(message.getId(), false);
+            // 3. Reload
+            loadArchivedMessages();
+        });
+        Toast.makeText(this, "✅ Returned to Inbox", Toast.LENGTH_SHORT).show();
+    }
 
     @Override
     public void onUnblock(SmsMessage message, int position) {}

@@ -11,6 +11,7 @@ import android.util.Log;
 import android.util.LruCache;
 
 import com.example.safeinbox.detection.SpamDetector;
+import com.example.safeinbox.models.ClassificationResult;
 import com.example.safeinbox.models.SenderReputation;
 import com.example.safeinbox.models.SmsMessage;
 import com.example.safeinbox.utils.Constants;
@@ -31,6 +32,35 @@ public class SpamDao {
     public SpamDao(Context context) {
         this.context = context;
         this.dbHelper = DBHelper.getInstance(context);
+    }
+
+    /**
+     * Updates the reputation score for a sender.
+     * Increments hitting count for either SPAM or HAM categories.
+     */
+    public void incrementSenderScore(String sender, boolean isSpam) {
+        try {
+            SQLiteDatabase db = dbHelper.getWritableDatabase();
+            incrementSenderScoreInTransaction(db, sender, isSpam);
+        } catch (Exception e) {
+            Log.e(TAG, "incrementSenderScore error", e);
+        }
+    }
+
+    private void incrementSenderScoreInTransaction(SQLiteDatabase db, String sender, boolean isSpam) {
+        if (sender == null) return;
+        String normalized = normalizeSender(sender);
+        String column = isSpam ? Constants.COL_SPAM_HITS : Constants.COL_HAM_HITS;
+        String sql = "INSERT INTO " + Constants.TABLE_SENDER_SCORES + " ("
+                + Constants.COL_SENDER_KEY + ", " + column + ", " + Constants.COL_LAST_UPDATED + ") "
+                + "VALUES (?, 1, ?) "
+                + "ON CONFLICT(" + Constants.COL_SENDER_KEY + ") DO UPDATE SET "
+                + column + " = " + column + " + 1, "
+                + Constants.COL_LAST_UPDATED + " = excluded." + Constants.COL_LAST_UPDATED;
+        db.execSQL(sql, new Object[]{normalized, System.currentTimeMillis()});
+        
+        // Turbo Mode: Evict cache to force reload on next check
+        reputationCache.remove(normalized);
     }
 
     // ==================== Sender Normalization (Dedup Core) ====================
@@ -188,6 +218,7 @@ public class SpamDao {
             values.put(Constants.COL_DEDUP_ID, dedupId);
             values.put(Constants.COL_CLASSIFICATION_STATUS, finalSpamStatus ? "SPAM" : message.getClassificationStatus());
             values.put(Constants.COL_HAS_RISKY_LINK, message.isHasRiskyLink() ? 1 : 0);
+            values.put(Constants.COL_SCORE, message.getScore());
             
             return db.insertWithOnConflict(Constants.TABLE_MESSAGES, null, values,
                     SQLiteDatabase.CONFLICT_IGNORE);
@@ -234,6 +265,7 @@ public class SpamDao {
                 values.put(Constants.COL_DEDUP_ID, dedupId);
                 values.put(Constants.COL_CLASSIFICATION_STATUS, isSpam ? "SPAM" : message.getClassificationStatus());
                 values.put(Constants.COL_HAS_RISKY_LINK, message.isHasRiskyLink() ? 1 : 0);
+                values.put(Constants.COL_SCORE, message.getScore());
                 
                 db.insertWithOnConflict(Constants.TABLE_MESSAGES, null, values,
                         SQLiteDatabase.CONFLICT_IGNORE);
@@ -306,14 +338,76 @@ public class SpamDao {
                     int dedupIdx = cursor.getColumnIndexOrThrow(Constants.COL_DEDUP_ID);
                     int classificationIdx = cursor.getColumnIndexOrThrow(Constants.COL_CLASSIFICATION_STATUS);
                     int riskyLinkIdx = cursor.getColumnIndexOrThrow(Constants.COL_HAS_RISKY_LINK);
+                    int scoreIdx = cursor.getColumnIndexOrThrow(Constants.COL_SCORE);
 
                     while (cursor.moveToNext()) {
                         String dedupId = cursor.getString(dedupIdx);
                         
-                        
                         // --- ARCHIVE FILTERING ---
-                        // If this message belongs in the Archive, strictly exclude it from the main UI lists
                         if (archivedDedupIds.contains(dedupId)) continue;
+                        
+                        String classificationStatus = cursor.getString(classificationIdx);
+                        if (classificationStatus == null) {
+                            classificationStatus = cursor.getInt(spamIdx) == 1 ? "SPAM" : "SAFE";
+                        }
+
+                        SmsMessage msg = new SmsMessage(
+                                cursor.getLong(idIdx),
+                                cursor.getString(senderIdx),
+                                cursor.getString(nameIdx),
+                                cursor.getString(bodyIdx),
+                                cursor.getLong(dateIdx),
+                                classificationStatus,
+                                dedupId
+                        );
+                        
+                        msg.setHasRiskyLink(cursor.getInt(riskyLinkIdx) == 1);
+                        msg.setBlocked(cursor.getInt(blockedIdx) == 1);
+                        msg.setScore(cursor.getInt(scoreIdx));
+                        messages.add(msg);
+                    }
+                } finally {
+                    cursor.close();
+                }
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "getMessages error", e);
+        }
+        return messages;
+    }
+
+    public List<SmsMessage> getArchivedMessages() {
+        List<SmsMessage> messages = new ArrayList<>();
+        try {
+            java.util.Set<String> archivedDedupIds = getArchivedDedupIds();
+            if (archivedDedupIds.isEmpty()) return messages;
+
+            SQLiteDatabase db = dbHelper.getReadableDatabase();
+            
+            // Query for ALL messages, then we'll filter for archived ones
+            // This is safer than a massive IN clause for thousands of IDs
+            Cursor cursor = db.query(Constants.TABLE_MESSAGES, null, null, null, null, null, Constants.COL_DATE + " DESC");
+
+            if (cursor != null) {
+                try {
+                    int idIdx = cursor.getColumnIndexOrThrow(Constants.COL_ID);
+                    int senderIdx = cursor.getColumnIndexOrThrow(Constants.COL_SENDER);
+                    int nameIdx = cursor.getColumnIndexOrThrow(Constants.COL_SENDER_NAME);
+                    int bodyIdx = cursor.getColumnIndexOrThrow(Constants.COL_BODY);
+                    int dateIdx = cursor.getColumnIndexOrThrow(Constants.COL_DATE);
+                    int spamIdx = cursor.getColumnIndexOrThrow(Constants.COL_IS_SPAM);
+                    int blockedIdx = cursor.getColumnIndexOrThrow(Constants.COL_IS_BLOCKED);
+                    int dedupIdx = cursor.getColumnIndexOrThrow(Constants.COL_DEDUP_ID);
+                    int classificationIdx = cursor.getColumnIndexOrThrow(Constants.COL_CLASSIFICATION_STATUS);
+                    int riskyLinkIdx = cursor.getColumnIndexOrThrow(Constants.COL_HAS_RISKY_LINK);
+                    int scoreIdx = cursor.getColumnIndexOrThrow(Constants.COL_SCORE);
+
+                    while (cursor.moveToNext()) {
+                        String dedupId = cursor.getString(dedupIdx);
+                        
+                        // --- ARCHIVE INCLUSION ---
+                        // Only include if it IS in the archive set
+                        if (!archivedDedupIds.contains(dedupId)) continue;
 
                         String classificationStatus = cursor.getString(classificationIdx);
                         if (classificationStatus == null) {
@@ -332,6 +426,7 @@ public class SpamDao {
                         
                         msg.setHasRiskyLink(cursor.getInt(riskyLinkIdx) == 1);
                         msg.setBlocked(cursor.getInt(blockedIdx) == 1);
+                        msg.setScore(cursor.getInt(scoreIdx));
                         messages.add(msg);
                     }
                 } finally {
@@ -339,7 +434,7 @@ public class SpamDao {
                 }
             }
         } catch (Exception e) {
-            Log.e(TAG, "getMessages error", e);
+            Log.e(TAG, "getArchivedMessages error", e);
         }
         return messages;
     }
@@ -785,30 +880,6 @@ public class SpamDao {
             Log.e(TAG, "loadReputationFromDb error", e);
         }
         return rep;
-    }
-
-    public void incrementSenderScore(String sender, boolean isSpam) {
-        if (sender == null) return;
-        try {
-            SQLiteDatabase db = dbHelper.getWritableDatabase();
-            String normalized = normalizeSender(sender);
-            String column = isSpam ? Constants.COL_SPAM_HITS : Constants.COL_HAM_HITS;
-
-            // This SQL handles both INSERT and UPDATE (upsert)
-            String sql = "INSERT INTO " + Constants.TABLE_SENDER_SCORES + " ("
-                    + Constants.COL_SENDER_KEY + ", " + column + ", " + Constants.COL_LAST_UPDATED + ") "
-                    + "VALUES (?, 1, ?) "
-                    + "ON CONFLICT(" + Constants.COL_SENDER_KEY + ") DO UPDATE SET "
-                    + column + " = " + column + " + 1, "
-                    + Constants.COL_LAST_UPDATED + " = excluded." + Constants.COL_LAST_UPDATED;
-
-            db.execSQL(sql, new Object[]{normalized, System.currentTimeMillis()});
-            
-            // Turbo Mode: Evict cache to force reload on next check
-            reputationCache.remove(normalized);
-        } catch (Exception e) {
-            Log.e(TAG, "incrementSenderScore error", e);
-        }
     }
 
     public void recordUserFeedback(String sender, boolean isSpam) {
@@ -1339,26 +1410,152 @@ public class SpamDao {
         return null;
     }
 
-    /**
-     * CLEANUP TOOL: Moves messages classified as SAFE back to the Inbox.
-     * Use this to correct inadvertent routing mistakes where SAFE items ended up in Spam.
-     */
-    public void moveSafeMessagesToInbox() {
+    public void updateMessageFields(long messageId, android.content.ContentValues values) {
         try {
             SQLiteDatabase db = dbHelper.getWritableDatabase();
-            ContentValues values = new ContentValues();
-            values.put(Constants.COL_IS_SPAM, 0);
-            
-            // Move items where Engine says SAFE and they aren't on high-priority block list
-            int rows = db.update(Constants.TABLE_MESSAGES, values, 
-                    Constants.COL_IS_SPAM + " = 1 AND " + Constants.COL_CLASSIFICATION_STATUS + " = 'SAFE' AND " 
-                    + Constants.COL_IS_BLOCKED + " = 0", null);
-            
-            if (rows > 0) {
-                Log.d(TAG, "moveSafeMessagesToInbox: shifted " + rows + " safe messages back to Inbox");
+            db.update(Constants.TABLE_MESSAGES, values, Constants.COL_ID + " = ?", new String[]{String.valueOf(messageId)});
+        } catch (Exception e) {
+            Log.e(TAG, "updateMessageFields error", e);
+        }
+    }
+
+    public long getMessagesCount(boolean isSpam) {
+        try {
+            SQLiteDatabase db = dbHelper.getReadableDatabase();
+            String query = "SELECT COUNT(*) FROM " + Constants.TABLE_MESSAGES + " WHERE " + Constants.COL_IS_SPAM + " = ?";
+            android.database.Cursor cursor = db.rawQuery(query, new String[]{isSpam ? "1" : "0"});
+            if (cursor != null) {
+                try {
+                    if (cursor.moveToFirst()) return cursor.getLong(0);
+                } finally {
+                    cursor.close();
+                }
             }
         } catch (Exception e) {
-            Log.e(TAG, "moveSafeMessagesToInbox error", e);
+            Log.e(TAG, "getMessagesCount error", e);
+        }
+        return 0;
+    }
+
+    public interface RescanProgressCallback {
+        void onProgress(int current, int total, String folderName, int spamFound, int safeRestored);
+    }
+
+    /**
+     * Backward-compatible overload for reclassifyProjectWide.
+     */
+    public void reclassifyProjectWide(SpamDetector detector) {
+        reclassifyProjectWide(detector, null);
+    }
+
+    /**
+     * PROJECT-WIDE FORENSIC RESCAN:
+     * Iterates through every message in the database and re-runs the detection engine.
+     * Moves messages between Inbox and Spam dynamically based on the updated 6-Level logic.
+     * Also recalculates Sender Reputation (Insights).
+     */
+    public void reclassifyProjectWide(SpamDetector detector, RescanProgressCallback callback) {
+        try {
+            SQLiteDatabase db = dbHelper.getWritableDatabase();
+            
+            // 1. Fetch Archives and current folder states for summary
+            java.util.Set<String> archivedDedupIds = getArchivedDedupIds();
+            
+            // 2. Fetch all messages to process
+            Cursor cursor = db.query(Constants.TABLE_MESSAGES, null, null, null, null, null, null);
+            if (cursor == null) return;
+            
+            List<SmsMessage> allMessages = new ArrayList<>();
+            List<Boolean> oldSpamStatuses = new ArrayList<>();
+            try {
+                int idIdx = cursor.getColumnIndexOrThrow(Constants.COL_ID);
+                int senderIdx = cursor.getColumnIndexOrThrow(Constants.COL_SENDER);
+                int nameIdx = cursor.getColumnIndexOrThrow(Constants.COL_SENDER_NAME);
+                int bodyIdx = cursor.getColumnIndexOrThrow(Constants.COL_BODY);
+                int dateIdx = cursor.getColumnIndexOrThrow(Constants.COL_DATE);
+                int dedupIdx = cursor.getColumnIndexOrThrow(Constants.COL_DEDUP_ID);
+                int isSpamIdx = cursor.getColumnIndexOrThrow(Constants.COL_IS_SPAM);
+                
+                while (cursor.moveToNext()) {
+                    allMessages.add(new SmsMessage(
+                            cursor.getLong(idIdx),
+                            cursor.getString(senderIdx),
+                            cursor.getString(nameIdx),
+                            cursor.getString(bodyIdx),
+                            cursor.getLong(dateIdx),
+                            null, 
+                            cursor.getString(dedupIdx)
+                    ));
+                    oldSpamStatuses.add(cursor.getInt(isSpamIdx) == 1);
+                }
+            } finally {
+                cursor.close();
+            }
+
+            int total = allMessages.size();
+            if (total == 0) return;
+
+            int newSpam = 0;
+            int restoredSafe = 0;
+
+            db.beginTransaction();
+            try {
+                // CLEAR REPUTATION TO REBUILD ACCURATELY
+                db.delete(Constants.TABLE_SENDER_SCORES, null, null);
+                reputationCache.evictAll();
+
+                for (int i = 0; i < total; i++) {
+                    SmsMessage msg = allMessages.get(i);
+                    boolean oldSpam = oldSpamStatuses.get(i);
+                    
+                    // Identify Folder for Progress Reporting
+                    String folderName = "Inbox";
+                    if (msg.getDedupId() != null && archivedDedupIds.contains(msg.getDedupId())) {
+                        folderName = "Archive Vault";
+                    } else if (oldSpam) {
+                        folderName = "Spam Vault";
+                    }
+
+                    // Report individual progress
+                    if (callback != null) {
+                        callback.onProgress(i + 1, total, folderName, newSpam, restoredSafe);
+                    }
+
+                    // RUN NEW 6-LEVEL ENGINE
+                    ClassificationResult result = detector.classifyWithDetails(msg.getSender(), msg.getBody());
+                    
+                    // IF SENDER IS MANUALLY BLOCKED, OVERRIDE TO SPAM
+                    boolean isBlocked = isNumberInSpamTable(msg.getSender());
+                    boolean finalSpam = isBlocked || result.status == ClassificationResult.Status.SPAM;
+                    
+                    // Track Transitions for Summary
+                    if (!oldSpam && finalSpam) newSpam++;
+                    if (oldSpam && !finalSpam) restoredSafe++;
+
+                    // Update Database
+                    ContentValues v = new ContentValues();
+                    v.put(Constants.COL_IS_SPAM, finalSpam ? 1 : 0);
+                    v.put(Constants.COL_CLASSIFICATION_STATUS, finalSpam ? "SPAM" : result.status.name());
+                    v.put(Constants.COL_HAS_RISKY_LINK, result.isRiskyLink ? 1 : 0);
+                    v.put(Constants.COL_SCORE, result.totalScore);
+                    
+                    db.update(Constants.TABLE_MESSAGES, v, Constants.COL_ID + " = ?", 
+                            new String[]{String.valueOf(msg.getId())});
+
+                    incrementSenderScoreInTransaction(db, msg.getSender(), finalSpam);
+                }
+                
+                // Final Progress Report
+                if (callback != null) {
+                    callback.onProgress(total, total, "Sync Complete", newSpam, restoredSafe);
+                }
+                
+                db.setTransactionSuccessful();
+            } finally {
+                db.endTransaction();
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "reclassifyProjectWide forensic error", e);
         }
     }
 }

@@ -5,91 +5,134 @@ import java.util.HashSet;
 import java.util.Set;
 import java.util.regex.Pattern;
 
-/**
- * Enhanced KeywordFilter for multi-layer classification.
- * Tracks Spam, Urgency, Threat, and OTP signals.
- */
 public class KeywordFilter {
 
-    // Detection Patterns
     private static final Pattern OTP_PATTERN = Pattern.compile("(\\b\\d{4,8}\\b)", Pattern.CASE_INSENSITIVE);
-    
-    private static final Set<String> OTP_KEYWORDS = new HashSet<>(Arrays.asList(
-            "otp", "verification", "code", "vcode", "one time password", "do not share", "secret"
+
+    // B) OTP / Security (SAFE)
+    public static final Set<String> OTP_KEYWORDS = new HashSet<>(Arrays.asList(
+            "otp", "one time password", "do not share", "verification code", "valid for", "expires", "secure", "login code", "vcode"
     ));
 
-    private static final Set<String> SPAM_KEYWORDS = new HashSet<>(Arrays.asList(
-            "win", "free", "prize", "gift card", "reward", "winner", "jackpot", "lucky", "lottery"
+    // A) Bank / Financial (+High)
+    public static final Set<String> BANK_KEYWORDS = new HashSet<>(Arrays.asList(
+            "account", "bank", "debit", "credit", "upi", "kyc", "verify", "update", "login", "password", 
+            "pin", "otp misuse", "transaction", "refund", "charge", "limit", "freeze", "blocked", "reset", "credentials", "netbanking"
     ));
 
-    private static final Set<String> URGENCY_WORDS = new HashSet<>(Arrays.asList(
-            "now", "claim", "urgent", "hurry", "expires", "immediately", "today", "instantly"
+    // C) Telecom / Service (SAFE)
+    public static final Set<String> SERVICE_KEYWORDS = new HashSet<>(Arrays.asList(
+            "airtel", "jio", "vi", "recharge", "validity", "balance", "data pack", "sms pack", "plan", "expiry", "call cost", "uidai", "irctc"
     ));
 
-    private static final Set<String> THREAT_WORDS = new HashSet<>(Arrays.asList(
-            "account blocked", "update now", "action required", "unauthorized", "suspended", "security alert"
+    // D) Prize / Lottery (SPAM)
+    public static final Set<String> PRIZE_KEYWORDS = new HashSet<>(Arrays.asList(
+            "win", "won", "winner", "prize", "lottery", "jackpot", "reward", "giveaway", "gift", "voucher", "coupon", "redeem", "claim", "hurray", "hurry"
     ));
 
-    private static final Set<String> SERVICE_KEYWORDS = new HashSet<>(Arrays.asList(
-            "airtel", "jio", "vi", "bank", "aadhaar", "irctc", "uidai", "recharge", "balance"
+    // E) Urgency (RISK)
+    public static final Set<String> URGENCY_KEYWORDS = new HashSet<>(Arrays.asList(
+            "now", "urgent", "immediately", "hurry", "act now", "last chance", "today", "final notice", "asap"
     ));
+
+    // F) Phishing Actions (RISK)
+    public static final Set<String> ACTION_TRIGGERS = new HashSet<>(Arrays.asList(
+            "click", "click here", "tap", "open link", "verify here", "login here", "submit", "update now", "access", "claim now", "claimed", "visit"
+    ));
+
+    // G) Suspicious Keywords (RISK)
+    public static final Set<String> SUSPICIOUS_KEYWORDS = new HashSet<>(Arrays.asList(
+            "free-money", "secure-login", "verify-account", "update-now"
+    ));
+
+    // H) Trusted Keywords (SAFE)
+    public static final Set<String> TRUSTED_KEYWORDS = new HashSet<>(Arrays.asList(
+            "google.com", "youtube.com", "amazon.in", "uidai.gov.in", "irctc.co.in"
+    ));
+
+    public static class KeywordAnalysisResult {
+        public int spamScore = 0;
+        public int urgencyScore = 0;
+        public int threatScore = 0;
+        public int overallScore = 0;
+
+        // Pattern Flags for Combination Detection
+        public boolean hasBankWords = false;
+        public boolean hasActionWords = false;
+        public boolean hasPrizeWords = false;
+        public boolean hasUrgencyWords = false;
+        public boolean hasSuspiciousKeywords = false;
+        public boolean hasThreatWords = false; // Combination of Bank/Blocked etc.
+    }
+
+    public KeywordAnalysisResult analyzeText(String body) {
+        KeywordAnalysisResult result = new KeywordAnalysisResult();
+        if (body == null) return result;
+        String lower = body.toLowerCase();
+
+        // 1. Scoring (Targeting exactly requested weights)
+        // Strong spam/Prize words -> +40
+        int prizeHits = countMatches(lower, PRIZE_KEYWORDS);
+        result.spamScore = prizeHits * 40;
+        result.hasPrizeWords = prizeHits > 0;
+
+        // Urgency -> +20
+        int urgencyHits = countMatches(lower, URGENCY_KEYWORDS);
+        result.urgencyScore = urgencyHits * 20;
+        result.hasUrgencyWords = urgencyHits > 0;
+
+        // Phishing Actions -> +20 (used as Link/Trigger weight in engine)
+        int actionHits = countMatches(lower, ACTION_TRIGGERS);
+        result.hasActionWords = actionHits > 0;
+
+        // 2. Combo Detection Flags
+        int bankHits = countMatches(lower, BANK_KEYWORDS);
+        result.hasBankWords = bankHits > 0;
+
+        int suspHits = countMatches(lower, SUSPICIOUS_KEYWORDS);
+        result.hasSuspiciousKeywords = suspHits > 0;
+
+        // Threat Keywords (Bank + Blocked/Verify etc) -> +30
+        // We define a broad "Threat" category for scoring
+        result.hasThreatWords = (lower.contains("blocked") || lower.contains("suspended") || lower.contains("disabled") || lower.contains("frozen") || lower.contains("kyc")) 
+                                && (result.hasBankWords || lower.contains("sim") || lower.contains("account"));
+        
+        if (result.hasThreatWords) {
+            result.threatScore = 30;
+        }
+
+        // 3. Final Overall Keyword Score (Capped logic is now handled in Engine)
+        result.overallScore = result.spamScore + result.urgencyScore + result.threatScore;
+
+        return result;
+    }
+
+    private int countMatches(String body, Set<String> dictionary) {
+        int count = 0;
+        for (String word : dictionary) {
+            if (body.contains(word)) {
+                // Heuristic: check if it's a standalone word or surrounded by delimiters
+                // This is a simple implementation; more robust tokenization could be used.
+                count++;
+            }
+        }
+        return count;
+    }
 
     public boolean isOTP(String body) {
         if (body == null) return false;
         String lower = body.toLowerCase();
-        
-        // Pattern: Contains 4-8 digit number AND OTP keywords
         boolean hasDigits = OTP_PATTERN.matcher(body).find();
-        boolean hasKeywords = false;
-        for (String kw : OTP_KEYWORDS) {
-            if (lower.contains(kw)) {
-                hasKeywords = true;
-                break;
-            }
-        }
-        return hasDigits && hasKeywords;
+        return hasDigits && countMatches(lower, OTP_KEYWORDS) > 0;
     }
 
-    public boolean isServiceKeywordPresent(String body) {
+    public boolean isServiceMessage(String body) {
         if (body == null) return false;
-        String lower = body.toLowerCase();
-        for (String kw : SERVICE_KEYWORDS) {
-            if (lower.contains(kw)) return true;
-        }
-        return false;
+        return countMatches(body.toLowerCase(), SERVICE_KEYWORDS) > 0;
     }
 
-    public int getSpamKeywordScore(String body) {
-        if (body == null) return 0;
-        String lower = body.toLowerCase();
-        for (String kw : SPAM_KEYWORDS) {
-            if (lower.contains(kw)) return 40; // Requirements: +40 for spam keywords
-        }
-        return 0;
-    }
-
-    public int getUrgencyScore(String body) {
-        if (body == null) return 0;
-        String lower = body.toLowerCase();
-        for (String kw : URGENCY_WORDS) {
-            if (lower.contains(kw)) return 20; // Requirements: +20 for urgency
-        }
-        return 0;
-    }
-
-    public int getThreatScore(String body) {
-        if (body == null) return 0;
-        String lower = body.toLowerCase();
-        for (String kw : THREAT_WORDS) {
-            if (lower.contains(kw)) return 30; // Requirements: +30 for threat
-        }
-        return 0;
-    }
-
-    public boolean isGenericCasualText(String body) {
+    public boolean containsTrustedKeywords(String body) {
         if (body == null) return false;
-        String lower = body.toLowerCase().trim();
-        return lower.length() < 30 && !lower.contains("http") && !lower.contains("www") 
-                && (lower.contains("hi") || lower.contains("hello") || lower.contains("ok") || lower.contains("bye"));
+        return countMatches(body.toLowerCase(), TRUSTED_KEYWORDS) > 0;
     }
 }

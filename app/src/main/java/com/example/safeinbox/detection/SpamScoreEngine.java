@@ -8,8 +8,7 @@ import com.example.safeinbox.utils.ContactUtils;
 import com.example.safeinbox.utils.PrincipalEntityResolver;
 
 /**
- * Robust Multi-Layer Classification Engine for SafeInbox.
- * Orchestrates Preprocessing, OTP Detection, Service Identification, and Dynamic Scoring.
+ * Production-Grade 6-Level Classification Engine for SafeInbox.
  */
 public class SpamScoreEngine {
     private static final String TAG = "SpamScoreEngine";
@@ -29,94 +28,130 @@ public class SpamScoreEngine {
     public ClassificationResult classify(String sender, String body, String[] ignoredWords) {
         ClassificationResult result = new ClassificationResult();
         
-        // --- STEP 1: PREPROCESSING ---
+        // --- STEP 0: PREPARATION ---
         if (body == null || body.trim().isEmpty()) {
             result.status = ClassificationResult.Status.SAFE;
             return result;
         }
         String normalizedBody = body.toLowerCase().replaceAll("\\s+", " ").trim();
 
-        // --- STEP 2: OTP DETECTION (HIGH PRIORITY) ---
-        if (keywordFilter.isOTP(normalizedBody)) {
-            result.status = ClassificationResult.Status.OTP;
-            result.totalScore = 0;
-            result.reason = "🔒 Transactional: One-Time Password (OTP) detected";
+        // Gather sub-signals
+        boolean isAlphanumeric = PrincipalEntityResolver.isAlphanumericSender(sender);
+        boolean isServiceKeywords = keywordFilter.isServiceMessage(normalizedBody);
+        boolean isInContacts = ContactUtils.getContactName(context, sender) != null;
+        LinkScanner.LinkRiskResult linkResult = linkScanner.scan(normalizedBody);
+        KeywordFilter.KeywordAnalysisResult keywordResult = keywordFilter.analyzeText(normalizedBody);
+
+        // Populate forensic metadata
+        result.keywordScore = keywordResult.spamScore;
+        result.urgencyScore = keywordResult.urgencyScore;
+        result.threatScore = keywordResult.threatScore;
+
+        // --- STEP 1: HARD PHISHING OVERRIDES (Highest Priority) ---
+        // 🔴 1) Phishing SMS are downgraded due to “contact trust” (FIXED)
+        
+        // Brand Mismatch
+        if (linkResult.isBrandMismatch) {
+            result.status = ClassificationResult.Status.SPAM;
+            result.reason = "🛡️ Phishing: Brand Spoofing detected (Mismatch URL)";
+            result.totalScore = 100;
             return result;
         }
 
-        // --- STEP 3: INITIAL LAYER (SERVICE / CONTACT) ---
-        boolean isAlphanumeric = PrincipalEntityResolver.isAlphanumericSender(sender);
-        boolean isServiceKeywords = keywordFilter.isServiceKeywordPresent(normalizedBody);
-        boolean isInContacts = ContactUtils.getContactName(context, sender) != null;
+        // Bank Phishing Pattern: (bank/acc/kyc) + (verify/update/login) + (link)
+        boolean isBankPhishingCombo = keywordResult.hasBankWords && keywordResult.hasActionWords && linkResult.hasLink;
+        
+        // Threat Pattern: (blocked/suspended) + (sim/acc/kyc) + (link/action)
+        boolean isThreatPhishingCombo = keywordResult.hasThreatWords && (linkResult.hasLink || keywordResult.hasActionWords);
 
-        // --- STEP 4: SPAM SCORING SYSTEM ---
-        
-        // 1. Keyword Scoring
-        result.keywordScore = keywordFilter.getSpamKeywordScore(normalizedBody); // +40
-        result.urgencyScore = keywordFilter.getUrgencyScore(normalizedBody);   // +20
-        int threatScore = keywordFilter.getThreatScore(normalizedBody);         // +30
-        
-        // 2. Link Safety Analysis
-        LinkScanner.LinkRiskResult linkResult = linkScanner.scan(normalizedBody);
-        result.linkScore = linkResult.score; // Dynamic (+20, +30, +40, or -20)
-        result.isRiskyLink = linkResult.score >= 30;
+        // Prize/Amazon Phishing: (win/prize) + (link/action)
+        boolean isPrizePhishingCombo = keywordResult.hasPrizeWords && (linkResult.hasLink || keywordResult.hasActionWords);
 
-        // 3. Trust Weights
-        result.contactWeight = isInContacts ? -30 : 0;
-        
-        // 4. History Signal (Internal Reputation)
-        int spamHits = spamDao.getSenderSpamHits(sender);
-        result.historyScore = Math.min(spamHits * 10, 30); // Dynamic reputation risk
-
-        // --- STEP 5: CALCULATION & OVERRIDES ---
-        
-        // Raw score calculation based on strict user requirements
-        int rawScore = result.keywordScore + result.urgencyScore + threatScore + result.linkScore + result.contactWeight + result.historyScore;
-        result.totalScore = Math.max(0, Math.min(100, rawScore));
-
-        // Start with SAFE classification
-        result.status = ClassificationResult.Status.SAFE;
-        
-        // Apply Base Thresholds
-        if (result.totalScore > 70) {
+        if (isBankPhishingCombo || isThreatPhishingCombo || isPrizePhishingCombo || keywordResult.hasSuspiciousKeywords) {
             result.status = ClassificationResult.Status.SPAM;
-        } else if (result.totalScore >= 40) {
-            result.status = ClassificationResult.Status.SUSPICIOUS;
+            result.reason = "🛡️ Phishing Pattern: High-risk combination detected";
+            result.totalScore = 100;
+            return result;
         }
 
-        // --- LAYER 6: OVERRIDE RULES (VERY IMPORTANT) ---
+        // --- STEP 2: SAFE OVERRIDES ---
+        // 🟢 2) OTP Pattern
+        if (keywordFilter.isOTP(normalizedBody)) {
+            result.status = ClassificationResult.Status.SAFE;
+            result.totalScore = 0;
+            result.reason = "✅ OTP/Transactional: Verified security code";
+            return result;
+        }
 
-        // RULE: Service Identification
-        if (isAlphanumeric || isServiceKeywords) {
-            // Service/Government messages are SAFE unless score is extremely high
-            if (result.totalScore < 80) {
-                result.status = ClassificationResult.Status.SERVICE;
-                result.reason = "📡 Service Provider or Verified Government entity";
+        // Service Pattern (Service sender/keys AND no spam keywords)
+        if ((isAlphanumeric || isServiceKeywords) && !keywordResult.hasPrizeWords && !isBankPhishingCombo && !isThreatPhishingCombo) {
+            result.status = ClassificationResult.Status.SAFE;
+            result.totalScore = 0;
+            result.reason = "📡 Service Message: Verified broadcaster";
+            return result;
+        }
+
+        // --- STEP 3: SCORING (ONLY IF NO OVERRIDE) ---
+        // 🟡 3) Weights as specified
+        int totalScore = 0;
+
+        // Keywords
+        totalScore += keywordResult.spamScore;    // Prize/Lottery -> +40
+        totalScore += keywordResult.urgencyScore; // Urgency -> +20
+        totalScore += keywordResult.threatScore;  // Threat -> +30
+        
+        // Bonus for Financial context (Bank/Account words) to ensure they cross threshold
+        if (keywordResult.hasBankWords) {
+            totalScore += 20;
+        }
+
+        // Link Analysis
+        if (linkResult.hasLink) {
+            totalScore += 20; // Link present -> +20
+            if (linkResult.isShortened) totalScore += 40; // Short link -> +40
+            if (linkResult.isSuspiciousTLD) totalScore += 30; // Suspicious TLD -> +30
+            if (linkResult.isTrustedDomain) totalScore -= 20; // Trusted domain -> -20
+        }
+
+        // Reputation Balance
+        // 🧠 9) reputationScore = spam_count - safe_count (±20 max)
+        int spamHits = spamDao.getSenderSpamHits(sender);
+        int safeHits = spamDao.getSenderHamHits(sender);
+        int reputationScore = spamHits - safeHits;
+        reputationScore = Math.max(-20, Math.min(20, reputationScore)); 
+        totalScore += reputationScore;
+
+        // Contact Rule
+        // Contact deduction -> -10 (max)
+        if (isInContacts) {
+            totalScore -= 10;
+        }
+
+        result.totalScore = Math.max(0, totalScore);
+
+        // --- STEP 4: FINAL CLASSIFICATION ---
+        // ⚫ 7) Thresholds
+        if (result.totalScore < 40) {
+            result.status = ClassificationResult.Status.SAFE;
+            result.reason = "✅ Safe-Range Content (Score: " + result.totalScore + ")";
+        } else if (result.totalScore >= 40 && result.totalScore <= 70) {
+            result.status = ClassificationResult.Status.SUSPICIOUS;
+            result.reason = "⚠️ Suspicious indicators present (Score: " + result.totalScore + ")";
+        } else {
+            // score > 70
+            // 🟠 4) Contact Rule (FIX)
+            if (isInContacts) {
+                // contact cannot downgrade hard risk (Phishing was handled in Step 1)
+                // for other high scores from contacts, downgrade to SUSPICIOUS
+                result.status = ClassificationResult.Status.SUSPICIOUS;
+                result.reason = "⚠️ High score from known contact (Shielded from Spam Vault)";
             } else {
                 result.status = ClassificationResult.Status.SPAM;
-                result.reason = "🚨 Service spoofing or Malicious provider detected";
+                result.reason = "🚫 High-risk spam patterns (Score: " + result.totalScore + ")";
             }
         }
 
-        // RULE: Contact Protection
-        if (isInContacts && result.status == ClassificationResult.Status.SPAM) {
-            // NEVER directly mark a contact as SPAM
-            result.status = ClassificationResult.Status.SUSPICIOUS;
-            result.reason = "⚠️ Suspicious content from a known contact";
-        }
-
-        // Final Reason Assignment if not set by overrides
-        if (result.reason == null || result.reason.isEmpty()) {
-            if (result.status == ClassificationResult.Status.SPAM) {
-                result.reason = "🚫 High-risk patterns: " + (result.isRiskyLink ? "Risky Link, " : "") + (result.keywordScore > 0 ? "Spam Keywords" : "Threat/Volatility");
-            } else if (result.status == ClassificationResult.Status.SUSPICIOUS) {
-                result.reason = "⚠️ " + linkResult.reason;
-            } else {
-                result.reason = isInContacts ? "✅ Verified sender in contacts" : "✅ Clear of threat patterns";
-            }
-        }
-
-        Log.d(TAG, "FINAL CLASSIFICATION: " + result.status + " | Score: " + result.totalScore + " | Sender: " + sender);
+        Log.d(TAG, "PRODUCTION VERDICT: " + result.status + " | Total Score: " + result.totalScore + " | Sender: " + sender);
         return result;
     }
 }

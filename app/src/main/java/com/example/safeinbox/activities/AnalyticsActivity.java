@@ -15,6 +15,7 @@ import androidx.appcompat.app.AppCompatActivity;
 
 import com.example.safeinbox.R;
 import com.example.safeinbox.database.SpamDao;
+import com.example.safeinbox.detection.SpamDetector;
 import com.example.safeinbox.models.SmsMessage;
 import com.example.safeinbox.utils.TurboExecutor;
 
@@ -64,6 +65,9 @@ public class AnalyticsActivity extends AppCompatActivity {
         // Filters Card -> Shows Blacklist entries in dialog
         findViewById(R.id.card_filters).setOnClickListener(v -> showFiltersDialog());
 
+        // Forensic Rescan Card -> Reruns engine on all messages
+        findViewById(R.id.card_rescan).setOnClickListener(v -> triggerForensicRescan());
+
         loadAnalyticsData();
     }
 
@@ -96,6 +100,77 @@ public class AnalyticsActivity extends AppCompatActivity {
                         .setTitle(android.text.Html.fromHtml("<font color='#CE93D8'><b>🛡️ Active Filters</b></font>", android.text.Html.FROM_HTML_MODE_LEGACY))
                         .setMessage(android.text.Html.fromHtml(sb.toString(), android.text.Html.FROM_HTML_MODE_LEGACY))
                         .setPositiveButton("Close", null)
+                        .show();
+            });
+        });
+    }
+
+    private void triggerForensicRescan() {
+        android.app.ProgressDialog progress = new android.app.ProgressDialog(this);
+        progress.setTitle("⚖️ Forensic Sync in Progress");
+        progress.setMessage("Initializing secure forensic engine...");
+        progress.setProgressStyle(android.app.ProgressDialog.STYLE_SPINNER);
+        progress.setCancelable(false);
+        progress.show();
+
+        TurboExecutor.getInstance().execute(() -> {
+            try {
+                // RUN THE ENGINE ON EVERYTHING WITH PROGRESS CALLBACK
+                spamDao.reclassifyProjectWide(SpamDetector.getInstance(this), (current, total, folderName, spamFound, safeRestored) -> {
+                    mainHandler.post(() -> {
+                        if (isDestroyed() || isFinishing()) return;
+                        progress.setMessage(android.text.Html.fromHtml(
+                            "🔍 Folder: <font color='#80D8FF'><b>" + folderName + "</b></font><br/>" +
+                            "📊 Progress: " + current + " / " + total + "<br/>" +
+                            "🛡️ New Spam: <font color='#FF5252'>" + spamFound + "</font> | " +
+                            "✅ Restored: <font color='#69F0AE'>" + safeRestored + "</font>",
+                            android.text.Html.FROM_HTML_MODE_LEGACY
+                        ));
+                    });
+                });
+                
+                mainHandler.post(() -> {
+                    if (isDestroyed() || isFinishing()) return;
+                    progress.dismiss();
+                    
+                    // RE-FETCH STATS TO ENSURE UI IS ACCURATE
+                    loadAnalyticsData();
+                    
+                    // SHOW ADVANCED SUMMARY
+                    showForensicSummaryDialog();
+                    
+                    // Notify other activities to refresh
+                    androidx.localbroadcastmanager.content.LocalBroadcastManager.getInstance(this)
+                            .sendBroadcast(new android.content.Intent(com.example.safeinbox.utils.Constants.ACTION_DATABASE_RESCANNED));
+                });
+            } catch (Exception e) {
+                mainHandler.post(() -> {
+                    progress.dismiss();
+                    Toast.makeText(this, "Failed to sync: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                });
+            }
+        });
+    }
+
+    private void showForensicSummaryDialog() {
+        // Fetch fresh totals for the summary
+        TurboExecutor.getInstance().execute(() -> {
+            long totalSpam = spamDao.getMessagesCount(true);
+            long totalInbox = spamDao.getMessagesCount(false);
+            
+            mainHandler.post(() -> {
+                StringBuilder sb = new StringBuilder();
+                sb.append("<br/>All message vaults have been purified based on the latest <b>Forensic Security Rules</b>.<br/><br/>");
+                sb.append("📂 <b>Current Database State:</b><br/>");
+                sb.append("• Safe Messages: <font color='#69F0AE'>").append(totalInbox).append("</font><br/>");
+                sb.append("• Blocked Threats: <font color='#FF5252'>").append(totalSpam).append("</font><br/><br/>");
+                sb.append("<font color='#CE93D8'><i>Forensic integrity is now 100% across Inbox, Spam Vault, and Archives.</i></font>");
+
+                new android.app.AlertDialog.Builder(this, R.style.DarkAlertDialog)
+                        .setTitle(android.text.Html.fromHtml("<font color='#CE93D8'><b>⚖️ Forensic Audit Complete</b></font>", android.text.Html.FROM_HTML_MODE_LEGACY))
+                        .setMessage(android.text.Html.fromHtml(sb.toString(), android.text.Html.FROM_HTML_MODE_LEGACY))
+                        .setIcon(R.drawable.ic_security_lock)
+                        .setPositiveButton("Operational", null)
                         .show();
             });
         });

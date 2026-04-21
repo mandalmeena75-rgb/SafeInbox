@@ -56,6 +56,7 @@ public class SpamActivity extends AppCompatActivity implements SmsAdapter.OnMess
     private TextView textSelectionCount;
 
     private final android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private android.content.BroadcastReceiver rescanReceiver;
     
     private void safePostToUi(Runnable r) {
         if (!isFinishing() && !isDestroyed()) mainHandler.post(r);
@@ -108,6 +109,16 @@ public class SpamActivity extends AppCompatActivity implements SmsAdapter.OnMess
         bgExecutor.execute(this::loadSpamMessages);
         setupBackNavigation();
         
+        // --- DATABASE RESCAN LISTENER ---
+        rescanReceiver = new android.content.BroadcastReceiver() {
+            @Override
+            public void onReceive(android.content.Context context, android.content.Intent intent) {
+                bgExecutor.execute(() -> loadSpamMessages());
+            }
+        };
+        androidx.localbroadcastmanager.content.LocalBroadcastManager.getInstance(this).registerReceiver(rescanReceiver, 
+                new android.content.IntentFilter(com.example.safeinbox.utils.Constants.ACTION_DATABASE_RESCANNED));
+        
         // --- REAL-TIME ANALYTICS INTEGRATION ---
         // Handle incoming filters from Security Insights dashboard
         String filterSender = getIntent().getStringExtra("filter_sender");
@@ -141,6 +152,14 @@ public class SpamActivity extends AppCompatActivity implements SmsAdapter.OnMess
         // Always refresh spam list when this screen becomes visible
         // This ensures newly blocked messages appear immediately
         bgExecutor.execute(this::loadSpamMessages);
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        if (rescanReceiver != null) {
+            androidx.localbroadcastmanager.content.LocalBroadcastManager.getInstance(this).unregisterReceiver(rescanReceiver);
+        }
     }
 
     private void setupSelectionToolbar() {
