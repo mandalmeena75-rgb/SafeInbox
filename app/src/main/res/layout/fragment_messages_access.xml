@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:gravity="center"
+    android:orientation="vertical"
+    android:padding="24dp">
+
+    <ImageView
+        android:layout_width="100dp"
+        android:layout_height="100dp"
+        android:alpha="0.2"
+        android:src="@android:drawable/ic_dialog_email"
+        app:tint="@color/primary_light_purple" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:fontFamily="sans-serif-black"
+        android:text="Protection Active"
+        android:textColor="@color/text_white"
+        android:textSize="20sp" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:gravity="center"
+        android:fontFamily="sans-serif"
+        android:text="Your SMS and RCS messages are being monitored for spam and security threats."
+        android:textColor="@color/text_grey"
+        android:textSize="14sp" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btn_open_inbox"
+        style="@style/SafeInbox.Button"
+        android:layout_width="match_parent"
+        android:layout_height="64dp"
+        android:layout_marginTop="32dp"
+        android:text="View Protected Inbox"
+        app:backgroundTint="@null"
+        app:icon="@android:drawable/ic_menu_send" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btn_view_spam_main"
+        style="@style/Widget.Material3.Button.OutlinedButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:text="View Spam Vault"
+        android:textColor="@color/primary_light_purple"
+        app:strokeColor="@color/primary_light_purple" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btn_view_archive"
+        style="@style/SafeInbox.Button.Ghost"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="View Archive Vault"
+        android:textColor="@color/text_grey"
+        app:strokeColor="@color/button_border_grey"
+        app:icon="@android:drawable/ic_menu_save"
+        app:iconTint="@color/text_grey" />
+
+</LinearLayout>

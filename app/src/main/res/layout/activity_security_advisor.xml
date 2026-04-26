@@ -1,0 +1,159 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/bg_dark_start"
+    android:orientation="vertical"
+    android:fitsSystemWindows="true">
+
+    <!-- Terminal Header -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:background="@drawable/bg_header_spam"
+        android:gravity="center_vertical"
+        android:paddingStart="8dp"
+        android:paddingEnd="16dp"
+        android:orientation="horizontal"
+        android:elevation="6dp">
+
+        <Button
+            android:id="@+id/btn_back_advisor"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:text="←"
+            android:textColor="#FFFFFF"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:textSize="22sp"
+            android:textAllCaps="false"
+            android:padding="0dp"
+            android:minWidth="48dp" />
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="🛡️ AI Intelligence"
+            android:textColor="#FFFFFF"
+            android:textSize="20sp"
+            android:textStyle="bold"
+            android:gravity="center" />
+            
+        <View
+            android:layout_width="48dp"
+            android:layout_height="1dp" />
+    </LinearLayout>
+
+    <!-- Terminal Output Area -->
+    <ScrollView
+        android:id="@+id/scroll_terminal"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:padding="16dp"
+        android:background="#050510">
+
+        <TextView
+            android:id="@+id/text_terminal"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="[SYSTEM INITIALIZING...]\n[AI_ENGINE_v2.0_LOADED]\n\n"
+            android:textColor="@color/frost_blue_soft"
+            android:textSize="14sp"
+            android:fontFamily="monospace"
+            android:lineSpacingExtra="6dp"
+            android:shadowColor="@color/frost_blue_soft"
+            android:shadowRadius="4"
+            android:shadowDx="0"
+            android:shadowDy="0" />
+
+    </ScrollView>
+
+    <!-- Advisor Actions -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp"
+        android:background="@drawable/bg_dashboard_card"
+        android:layout_margin="12dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="SUGGESTED INTEL QUERIES"
+            android:textColor="@color/primary_light_purple"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.15" />
+
+        <HorizontalScrollView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:scrollbars="none">
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_explain_spam"
+                    style="@style/SafeInbox.Button.Ghost"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Explain Spam Scoring"
+                    android:textSize="11sp"
+                    android:layout_marginEnd="8dp" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_network_audit"
+                    style="@style/SafeInbox.Button.Ghost"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Database Audit"
+                    android:textSize="11sp"
+                    android:layout_marginEnd="8dp" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_optimize_filters"
+                    style="@style/SafeInbox.Button.Ghost"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Optimize Shield"
+                    android:textSize="11sp"
+                    android:layout_marginEnd="8dp" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_intel_masking"
+                    style="@style/SafeInbox.Button.Ghost"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Intel: Text Masking"
+                    android:textSize="11sp"
+                    android:layout_marginEnd="8dp" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_intel_shortlinks"
+                    style="@style/SafeInbox.Button.Ghost"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Intel: Shortlinks"
+                    android:textSize="11sp"
+                    android:layout_marginEnd="8dp" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_intel_financial"
+                    style="@style/SafeInbox.Button.Ghost"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Intel: Financial Fraud"
+                    android:textSize="11sp" />
+
+            </LinearLayout>
+        </HorizontalScrollView>
+    </LinearLayout>
+
+</LinearLayout>

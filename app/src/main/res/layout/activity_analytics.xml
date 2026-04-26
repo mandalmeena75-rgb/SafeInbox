@@ -1,0 +1,354 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:fitsSystemWindows="true"
+    android:background="@color/bg_dark_start">
+
+    <!-- Header -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:background="@drawable/bg_header_spam"
+        android:gravity="center_vertical"
+        android:paddingStart="8dp"
+        android:paddingEnd="16dp"
+        android:orientation="horizontal"
+        android:elevation="6dp">
+
+        <Button
+            android:id="@+id/btn_back_analytics"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:text="← Back"
+            android:textColor="#FFFFFF"
+            android:backgroundTint="@color/btn_back"
+            android:textSize="12sp"
+            android:textAllCaps="false"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp" />
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="📊 Security Insights"
+            android:textColor="#FFFFFF"
+            android:textSize="20sp"
+            android:textStyle="bold"
+            android:gravity="center" />
+            
+        <View
+            android:layout_width="48dp"
+            android:layout_height="1dp" />
+    </LinearLayout>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:padding="16dp"
+        android:clipToPadding="false">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <!-- Overview Cards -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:baselineAligned="false">
+
+                <!-- Blocked -->
+                <androidx.cardview.widget.CardView
+                    android:id="@+id/card_blocked"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="8dp"
+                    app:cardCornerRadius="12dp"
+                    app:cardBackgroundColor="@color/card_bg_dark">
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:padding="16dp"
+                        android:gravity="center">
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Blocked"
+                            android:textColor="@color/text_hint"
+                            android:textSize="12sp" />
+                        <TextView
+                            android:id="@+id/text_spam_count"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="-"
+                            android:textColor="@color/premium_gold"
+                            android:textSize="24sp" />
+                    </LinearLayout>
+                </androidx.cardview.widget.CardView>
+
+                <!-- Safe -->
+                <androidx.cardview.widget.CardView
+                    android:id="@+id/card_safe"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginStart="4dp"
+                    android:layout_marginEnd="4dp"
+                    app:cardCornerRadius="12dp"
+                    app:cardBackgroundColor="@color/card_bg_dark">
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:padding="16dp"
+                        android:gravity="center">
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Safe Scans"
+                            android:textColor="@color/text_hint"
+                            android:textSize="12sp" />
+                        <TextView
+                            android:id="@+id/text_ham_count"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="-"
+                            android:textColor="@color/soft_mint"
+                            android:textSize="24sp" />
+                    </LinearLayout>
+                </androidx.cardview.widget.CardView>
+                
+                <!-- Blacklist -->
+                <androidx.cardview.widget.CardView
+                    android:id="@+id/card_filters"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginStart="8dp"
+                    app:cardCornerRadius="12dp"
+                    app:cardBackgroundColor="@color/card_bg_dark">
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:padding="16dp"
+                        android:gravity="center">
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Filters"
+                            android:textColor="@color/text_hint"
+                            android:textSize="12sp" />
+                        <TextView
+                            android:id="@+id/text_blacklist_count"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="-"
+                            android:textColor="@color/text_white"
+                            android:textSize="24sp" />
+                    </LinearLayout>
+                </androidx.cardview.widget.CardView>
+            </LinearLayout>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="24dp"
+                android:text="⚖️ INBOX PURIFICATION MONITOR"
+                android:textSize="10sp"
+                android:textColor="@color/frost_blue_soft"
+                android:letterSpacing="0.1" />
+
+            <androidx.cardview.widget.CardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                app:cardCornerRadius="20dp"
+                app:cardBackgroundColor="#080812"
+                app:cardElevation="0dp">
+                
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="20dp">
+
+                    <!-- Linear Distribution Bar -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="24dp"
+                        android:orientation="horizontal"
+                        android:background="@drawable/bg_dashboard_card"
+                        android:clipToOutline="true">
+
+                        <View
+                            android:id="@+id/bar_spam"
+                            android:layout_width="0dp"
+                            android:layout_height="match_parent"
+                            android:layout_weight="1"
+                            android:background="@color/premium_gold" />
+
+                        <View
+                            android:id="@+id/bar_ham"
+                            android:layout_width="0dp"
+                            android:layout_height="match_parent"
+                            android:layout_weight="1"
+                            android:background="@color/soft_mint" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:layout_marginTop="12dp">
+                        
+                        <TextView
+                            android:id="@+id/text_spam_percent"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Spam Filtered: 0%"
+                            android:textColor="@color/premium_gold"
+                            android:textSize="13sp" />
+
+                        <TextView
+                            android:id="@+id/text_ham_percent"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Safe Integrity: 0%"
+                            android:textColor="@color/soft_mint"
+                            android:textSize="13sp" />
+                    </LinearLayout>
+                    
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:layout_gravity="center"
+                        android:text="REAL-TIME DATABASE REPUTATION ANALYSIS"
+                        android:textColor="@color/text_hint"
+                        android:textSize="9sp"
+                        android:letterSpacing="0.05" />
+                </LinearLayout>
+
+            </androidx.cardview.widget.CardView>
+
+            <!-- Top Senders -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="28dp"
+                android:layout_marginBottom="8dp"
+                android:text="🛡️ TOP BLOCKED SOURCES"
+                android:textSize="11sp"
+                android:textStyle="bold"
+                android:textColor="@color/accent_cyan"
+                android:letterSpacing="0.1" />
+
+            <LinearLayout
+                android:id="@+id/layout_top_senders"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:background="@drawable/bg_dashboard_card"
+                android:elevation="4dp"
+                android:padding="20dp" />
+
+            <!-- Top Keywords -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="28dp"
+                android:layout_marginBottom="8dp"
+                android:text="🔍 AI SPAM SIGNATURES"
+                android:textSize="11sp"
+                android:textStyle="bold"
+                android:textColor="@color/primary_light_purple"
+                android:letterSpacing="0.1" />
+
+            <LinearLayout
+                android:id="@+id/layout_top_keywords"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:background="@drawable/bg_dashboard_card"
+                android:elevation="4dp"
+                android:padding="20dp" />
+
+            <!-- Forensic System Controls -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="28dp"
+                android:layout_marginBottom="8dp"
+                android:text="⚖️ FORENSIC SYSTEM CONTROLS"
+                android:textSize="11sp"
+                android:textStyle="bold"
+                android:textColor="@color/premium_gold"
+                android:letterSpacing="0.1" />
+
+            <androidx.cardview.widget.CardView
+                android:id="@+id/card_rescan"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="32dp"
+                app:cardCornerRadius="16dp"
+                app:cardBackgroundColor="#1A1A2E"
+                app:cardElevation="6dp">
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:padding="20dp"
+                    android:gravity="center_vertical">
+                    
+                    <ImageView
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:src="@drawable/ic_search"
+                        app:tint="@color/premium_gold" />
+                    
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:layout_marginStart="16dp"
+                        android:orientation="vertical">
+                        
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Apply Forensic Rescan"
+                            android:textColor="@color/text_white"
+                            android:textSize="16sp"
+                            android:textStyle="bold" />
+                        
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Rerun 6-layer logic on existing inbox history"
+                            android:textColor="@color/text_hint"
+                            android:textSize="12sp" />
+                    </LinearLayout>
+                    
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="SYNC ›"
+                        android:textColor="@color/premium_gold"
+                        android:textStyle="bold"
+                        android:textSize="12sp" />
+                </LinearLayout>
+            </androidx.cardview.widget.CardView>
+
+        </LinearLayout>
+    </ScrollView>
+</LinearLayout>

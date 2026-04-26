@@ -1,0 +1,410 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="24dp"
+        android:background="#12081A">
+
+        <!-- Premium Header -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="20dp">
+
+            <ImageView
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:src="@drawable/ic_fingerprint"
+                android:contentDescription="Security Audit Icon"
+                app:tint="@color/premium_gold" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text=" FORENSIC AUDIT"
+                android:textSize="20sp"
+                android:textStyle="bold"
+                android:textColor="@color/premium_gold"
+                android:letterSpacing="0.1"
+                android:layout_marginStart="10dp" />
+        </LinearLayout>
+
+        <!-- Sender Info Overlay Card -->
+        <androidx.cardview.widget.CardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            app:cardBackgroundColor="#1E1E2E"
+            app:cardCornerRadius="16dp"
+            app:cardElevation="4dp"
+            android:layout_marginBottom="16dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <TextView
+                    android:id="@+id/audit_sender"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textSize="18sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/text_white"
+                    android:text="Name (Number)" />
+
+                <TextView
+                    android:id="@+id/audit_date"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textSize="13sp"
+                    android:textColor="@color/primary_light_purple"
+                    android:layout_marginTop="4dp"
+                    android:text="Timestamp" />
+            </LinearLayout>
+        </androidx.cardview.widget.CardView>
+
+        <!-- Message Body Card -->
+        <androidx.cardview.widget.CardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            app:cardBackgroundColor="#2A1B38"
+            app:cardCornerRadius="16dp"
+            app:cardElevation="0dp"
+            android:layout_marginBottom="24dp">
+
+            <TextView
+                android:id="@+id/audit_body_preview"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:padding="20dp"
+                android:textSize="16sp"
+                android:textColor="@color/text_white"
+                android:lineSpacingExtra="8dp"
+                android:textIsSelectable="true"
+                android:text="Message body goes here..." />
+        </androidx.cardview.widget.CardView>
+
+        <!-- Advanced Analytics Section -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="THREAT INTELLIGENCE"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:textColor="@color/text_hint"
+            android:letterSpacing="0.2"
+            android:layout_marginTop="28dp"
+            android:layout_marginBottom="16dp" />
+
+        <!-- AI Confidence Row -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginBottom="20dp"
+            android:padding="16dp"
+            android:background="@drawable/bg_label_outline">
+            
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="0.5"
+                    android:text="AI Decision Confidence"
+                    android:textSize="14sp"
+                    android:textColor="#E1BEE7" />
+                <TextView
+                    android:id="@+id/audit_ml_score"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="0.5"
+                    android:gravity="end"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/frost_blue_soft"
+                    android:text="0%" />
+            </LinearLayout>
+            <ProgressBar
+                android:id="@+id/audit_ml_progress"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="4dp"
+                android:layout_marginTop="12dp"
+                android:progressTint="@color/frost_blue_soft" />
+        </LinearLayout>
+
+        <!-- Link Safety Display -->
+        <androidx.cardview.widget.CardView
+            android:id="@+id/audit_link_status_card"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            app:cardBackgroundColor="#1A2D2E"
+            app:cardCornerRadius="12dp"
+            android:layout_marginBottom="20dp">
+            
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:padding="16dp"
+                android:gravity="center_vertical">
+                
+                <ImageView
+                    android:layout_width="22dp"
+                    android:layout_height="22dp"
+                    android:src="@android:drawable/ic_menu_share"
+                    app:tint="@color/accent_cyan" />
+                    
+                <TextView
+                    android:id="@+id/audit_link_score"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginStart="14dp"
+                    android:text="No suspicious links detected."
+                    android:textSize="14sp"
+                    android:textColor="@color/accent_cyan" />
+            </LinearLayout>
+        </androidx.cardview.widget.CardView>
+
+        <!-- Urgency Row with Depth Insight -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginBottom="20dp"
+            android:padding="16dp"
+            android:background="@drawable/bg_label_outline">
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="0.5"
+                    android:text="Threat Urgency Level"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:textColor="#E1BEE7" />
+                <TextView
+                    android:id="@+id/audit_urgency_score"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="0.5"
+                    android:gravity="end"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/error_red"
+                    android:text="Normal" />
+            </LinearLayout>
+            <ProgressBar
+                android:id="@+id/audit_urgency_progress"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="4dp"
+                android:layout_marginTop="12dp"
+                android:progressTint="@color/error_red" />
+            
+            <TextView
+                android:id="@+id/audit_urgency_depth"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:textSize="12sp"
+                android:textColor="@color/text_hint"
+                android:lineSpacingExtra="2dp"
+                android:text="Forensic Insight: Analyzing pressure patterns..." />
+        </LinearLayout>
+
+        <!-- Link Depth Row with Depth Insight -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginBottom="20dp"
+            android:padding="16dp"
+            android:background="@drawable/bg_label_outline">
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="0.5"
+                    android:text="Link Safety Depth"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:textColor="#E1BEE7" />
+                <TextView
+                    android:id="@+id/audit_link_depth_label"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="0.5"
+                    android:gravity="end"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/accent_cyan"
+                    android:text="Scanned" />
+            </LinearLayout>
+            <ProgressBar
+                android:id="@+id/audit_link_progress"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="4dp"
+                android:layout_marginTop="12dp"
+                android:progressTint="@color/accent_cyan" />
+
+            <TextView
+                android:id="@+id/audit_link_depth_insight"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:textSize="12sp"
+                android:textColor="@color/text_hint"
+                android:lineSpacingExtra="2dp"
+                android:text="Forensic Insight: Verifying URL DNA..." />
+        </LinearLayout>
+
+        <!-- Sender History Row with Depth Insight -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginBottom="28dp"
+            android:padding="16dp"
+            android:background="@drawable/bg_label_outline">
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="0.5"
+                    android:text="Sender Local Reputation"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:textColor="#E1BEE7" />
+                <TextView
+                    android:id="@+id/audit_history_score"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="0.5"
+                    android:gravity="end"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/primary_light_purple"
+                    android:text="Neutral" />
+            </LinearLayout>
+            <ProgressBar
+                android:id="@+id/audit_history_progress"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="4dp"
+                android:layout_marginTop="12dp"
+                android:progressTint="@color/primary_light_purple" />
+
+            <TextView
+                android:id="@+id/audit_history_depth"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:textSize="12sp"
+                android:textColor="@color/text_hint"
+                android:lineSpacingExtra="2dp"
+                android:text="Forensic Insight: Trust history analysis..." />
+        </LinearLayout>
+
+        <!-- Final Decision Card -->
+        <androidx.cardview.widget.CardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            app:cardBackgroundColor="#2D1212"
+            app:cardCornerRadius="16dp"
+            app:cardElevation="8dp"
+            android:layout_marginBottom="32dp">
+            
+            <TextView
+                android:id="@+id/audit_final_verdict"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:padding="18dp"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:textColor="@color/error_red"
+                android:text="DECISION: ANALYZING..."
+                android:gravity="center"
+                android:letterSpacing="0.05" />
+        </androidx.cardview.widget.CardView>
+
+        <!-- Actions -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+            
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginBottom="12dp">
+                
+                <Button
+                    android:id="@+id/btn_audit_negative"
+                    style="@style/SafeInbox.Button.Ghost"
+                    android:layout_width="0dp"
+                    android:layout_height="56dp"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="8dp"
+                    android:text="MARK HAM" />
+                    
+                <Button
+                    android:id="@+id/btn_audit_positive"
+                    style="@style/SafeInbox.Button"
+                    android:layout_width="0dp"
+                    android:layout_height="56dp"
+                    android:layout_weight="1"
+                    android:layout_marginStart="8dp"
+                    android:text="MARK SPAM" />
+            </LinearLayout>
+
+            <Button
+                android:id="@+id/btn_audit_block"
+                style="@style/SafeInbox.Button.Ghost"
+                android:layout_width="match_parent"
+                android:layout_height="56dp"
+                app:strokeColor="@color/error_red"
+                android:textColor="@color/error_red"
+                android:text="🚫 BLOCK SENDER permanently" />
+                
+            <TextView
+                android:id="@+id/btn_audit_cancel"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="20dp"
+                android:gravity="center"
+                android:padding="16dp"
+                android:textColor="@color/primary_light_purple"
+                android:text="← Return to Vault"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:letterSpacing="0.1"
+                android:background="?attr/selectableItemBackground" />
+        </LinearLayout>
+
+    </LinearLayout>
+</ScrollView>
