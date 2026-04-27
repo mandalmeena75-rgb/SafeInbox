@@ -1575,13 +1575,16 @@ public class SpamDao {
         Log.i(TAG, "Starting Industrial System Ingestion...");
         int imported = 0;
         int skipped = 0;
+        long maxTs = getLastSyncTimestamp();
         
         try {
             // 1. Warm Engine Cache for high-speed classification
             detector.prepareSimilarityCache();
             isRescanMode = true; // Turbo: Reputation updates in-memory
             
-            // --- TURBO-SPEED: PRE-CACHE CONTACTS ---
+            // --- TURBO-SPEED: PRE-CACHE DELETED & EXISTING (O(1) Memory vs O(N) DB Hits) ---
+            java.util.Set<String> deletedFingerprints = getAllDeletedFingerprints();
+            java.util.Set<String> existingDedupIds = getAllExistingDedupIds();
             java.util.Set<String> contactCache = new java.util.HashSet<>();
             try {
                 List<com.example.safeinbox.models.ContactModel> contacts = com.example.safeinbox.utils.ContactUtils.getAllContacts(context);
@@ -1597,7 +1600,8 @@ public class SpamDao {
             }
             
             Uri uri = Uri.parse("content://sms");
-            Cursor cursor = context.getContentResolver().query(uri, null, null, null, "date DESC LIMIT 2000");
+            String[] projection = {"address", "body", "date"};
+            Cursor cursor = context.getContentResolver().query(uri, projection, null, null, "date DESC LIMIT 1000");
             
             if (cursor == null) return;
             
@@ -1613,12 +1617,19 @@ public class SpamDao {
                     long date = cursor.getLong(dateIdx);
                     
                     if (sender == null || body == null) continue;
+                    if (date > maxTs) maxTs = date;
                     
                     SmsMessage msg = new SmsMessage(sender, body.trim(), date);
                     String dedupId = generateDedupId(msg);
                     
-                    // Check if we already have this message
-                    if (checkIfMessageExistsRecently(sender, body)) {
+                    // O(1) Memory Deletion Check
+                    if (deletedFingerprints.contains(generateContentFingerprint(msg))) {
+                        skipped++;
+                        continue;
+                    }
+
+                    // NUCLEAR DEDUP: Skip classification for existing messages
+                    if (existingDedupIds.contains(dedupId)) {
                         skipped++;
                         continue;
                     }
@@ -1646,6 +1657,9 @@ public class SpamDao {
                 if (!batch.isEmpty()) {
                     insertMessagesBatch(batch);
                 }
+                
+                // ALWAYS update sync timestamp so we don't re-read these messages in Inbox refresh
+                saveLastSyncTimestamp(maxTs);
                 
             } finally {
                 cursor.close();
@@ -1803,5 +1817,27 @@ public class SpamDao {
         } catch (Exception e) {
             Log.e(TAG, "reclassifyProjectWide forensic error", e);
         }
+    }
+    public java.util.Set<String> getAllExistingDedupIds() {
+        java.util.Set<String> ids = new java.util.HashSet<>();
+        try {
+            SQLiteDatabase db = dbHelper.getReadableDatabase();
+            android.database.Cursor cursor = db.query(Constants.TABLE_MESSAGES, new String[]{Constants.COL_DEDUP_ID}, 
+                    Constants.COL_DEDUP_ID + " IS NOT NULL", null, null, null, null);
+            if (cursor != null) {
+                try {
+                    int idx = cursor.getColumnIndexOrThrow(Constants.COL_DEDUP_ID);
+                    while (cursor.moveToNext()) {
+                        String id = cursor.getString(idx);
+                        if (id != null) ids.add(id);
+                    }
+                } finally {
+                    cursor.close();
+                }
+            }
+        } catch (Exception e) {
+            android.util.Log.e("SpamDao", "getAllExistingDedupIds error", e);
+        }
+        return ids;
     }
 }

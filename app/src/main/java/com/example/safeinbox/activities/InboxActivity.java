@@ -60,6 +60,7 @@ public class InboxActivity extends AppCompatActivity implements SmsAdapter.OnMes
 
     private volatile SpamDetector spamDetector;
     private volatile SpamScoreEngine spamScoreEngine;
+    private volatile boolean isSyncing = false;
 
     private SmsObserver smsObserver;
     private RcsMessageReceiver rcsReceiver;
@@ -258,12 +259,22 @@ public class InboxActivity extends AppCompatActivity implements SmsAdapter.OnMes
             safePostToUi(() -> {
                 adapter.setMessages(filtered);
                 checkEmptyState();
-                if (swipeRefreshLayout.isRefreshing()) swipeRefreshLayout.setRefreshing(false);
+                // Spinner must ONLY stop after the data is truly ready in the adapter
+                if (swipeRefreshLayout != null) swipeRefreshLayout.setRefreshing(false);
             });
-        } catch (Exception e) { Log.e(TAG, "Load error", e); }
+        } catch (Exception e) { 
+            Log.e(TAG, "Load error", e); 
+            safePostToUi(() -> {
+                if (swipeRefreshLayout != null && swipeRefreshLayout.isRefreshing()) {
+                    swipeRefreshLayout.setRefreshing(false);
+                }
+            });
+        }
     }
 
     private void syncNewMessages() {
+        if (isSyncing) return;
+        isSyncing = true;
         try {
             if (spamDetector == null) spamDetector = SpamDetector.getInstance(this);
             long lastSync = spamDao.getLastSyncTimestamp();
@@ -273,12 +284,30 @@ public class InboxActivity extends AppCompatActivity implements SmsAdapter.OnMes
                 List<SmsMessage> processedBatch = new ArrayList<>();
                 long maxTs = lastSync;
                 
+                // SUPER BOOST: Preload deleted and existing IDs into memory to avoid O(N) DB lookups
+                java.util.Set<String> deletedFingerprints = spamDao.getAllDeletedFingerprints();
+                java.util.Set<String> existingDedupIds = spamDao.getAllExistingDedupIds();
+                java.util.Set<String> batchDedup = new java.util.HashSet<>();
+                
+                // Pre-warm the engine caches for ultra-fast batch processing
+                spamDetector.prepareSimilarityCache();
+                
                 for (SmsMessage msg : newMsgs) {
-                    // Quick Dedup before heavy classification
-                    if (spamDao.checkIfMessageExistsRecently(msg.getSender(), msg.getBody())) continue;
-                    if (spamDao.isMessageDeleted(spamDao.generateContentFingerprint(msg))) continue;
+                    // MUST update maxTs for all messages, even skipped ones
+                    if (msg.getDate() > maxTs) maxTs = msg.getDate();
+                    
+                    // O(1) Memory Dedup before heavy classification
+                    String dedupId = spamDao.generateDedupId(msg);
+                    if (batchDedup.contains(dedupId)) continue;
+                    batchDedup.add(dedupId);
 
-                    // Industrial Classification
+                    // NUCLEAR DEDUP: Skip classification for messages already in DB
+                    if (existingDedupIds.contains(dedupId)) continue;
+                    
+                    // O(1) Memory Deletion Check
+                    if (deletedFingerprints.contains(spamDao.generateContentFingerprint(msg))) continue;
+
+                    // Industrial Classification (runs entirely in memory now)
                     ClassificationResult res = spamDetector.classifyWithDetails(msg.getSender(), msg.getBody());
                     msg.setClassificationStatus(res.status.name());
                     msg.setHasRiskyLink(res.isRiskyLink);
@@ -286,16 +315,23 @@ public class InboxActivity extends AppCompatActivity implements SmsAdapter.OnMes
                     msg.setClassificationReason(res.reason);
                     
                     processedBatch.add(msg);
-                    if (msg.getDate() > maxTs) maxTs = msg.getDate();
                 }
                 
                 if (!processedBatch.isEmpty()) {
                     // BOOST: Atomic batch insertion in a single transaction
                     spamDao.insertMessagesBatch(processedBatch);
-                    spamDao.saveLastSyncTimestamp(maxTs);
                 }
+                // ALWAYS update sync timestamp so we don't re-read skipped messages forever
+                spamDao.saveLastSyncTimestamp(maxTs);
+                
+                // Clean up caches
+                spamDetector.clearSimilarityCache();
             }
-        } catch (Exception e) { Log.e(TAG, "Sync error", e); }
+        } catch (Exception e) { 
+            Log.e(TAG, "Sync error", e); 
+        } finally {
+            isSyncing = false;
+        }
         loadMessages();
     }
 
@@ -347,13 +383,14 @@ public class InboxActivity extends AppCompatActivity implements SmsAdapter.OnMes
         dialog.show();
 
         bgExecutor.execute(() -> {
-            com.example.safeinbox.detection.SpamDetector sd = com.example.safeinbox.detection.SpamDetector.getInstance(this);
-            if (spamScoreEngine == null) {
-                spamScoreEngine = new com.example.safeinbox.detection.SpamScoreEngine(this, (com.example.safeinbox.detection.MLClassifier) sd.getClassifier());
-            }
-            String[] processedWords = sd.getTextProcessor().process(message.getBody());
-            ClassificationResult res = spamScoreEngine.classify(message.getSender(), message.getBody(), processedWords);
-            safePostToUi(() -> {                // UNIFIED INTELLIGENCE SCALING
+            try {
+                com.example.safeinbox.detection.SpamDetector sd = com.example.safeinbox.detection.SpamDetector.getInstance(this);
+                if (spamScoreEngine == null) {
+                    spamScoreEngine = new com.example.safeinbox.detection.SpamScoreEngine(this, (com.example.safeinbox.detection.MLClassifier) sd.getClassifier());
+                }
+                String[] processedWords = sd.getTextProcessor().process(message.getBody());
+                ClassificationResult res = spamScoreEngine.classify(message.getSender(), message.getBody(), processedWords);
+                safePostToUi(() -> {                // UNIFIED INTELLIGENCE SCALING
                 // Ensure text and progress bars are perfectly synchronized (Fix for "unmatched confidence")
                 mlScoreTv.setText(res.confidence + "% Total Confidence");
                 mlProgress.setProgress(res.confidence);
@@ -437,6 +474,17 @@ public class InboxActivity extends AppCompatActivity implements SmsAdapter.OnMes
                     ((TextView)view.findViewById(R.id.audit_link_score)).setTextColor(verdictColor);
                 }
             });
+            } catch (Exception e) {
+                Log.e(TAG, "Forensic audit failed", e);
+                safePostToUi(() -> {
+                    verdictTv.setText("⚠️ ANALYSIS FAILED");
+                    verdictTv.setTextColor(getResources().getColor(R.color.error_red));
+                    mlScoreTv.setText("0% Confidence");
+                    ((TextView)view.findViewById(R.id.audit_urgency_score)).setText("ERROR");
+                    ((TextView)view.findViewById(R.id.audit_link_score)).setText("Analysis Failed");
+                    ((TextView)view.findViewById(R.id.audit_history_score)).setText("ERROR");
+                });
+            }
         });
     }
 

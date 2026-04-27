@@ -48,7 +48,9 @@ public class SmsReader {
 
         Cursor cursor = null;
         try {
-            cursor = context.getContentResolver().query(uri, projection, selection, selectionArgs, sortOrder);
+            // SUPER BOOST: Hard limit ensures we never scan more than 500 messages at once.
+            // Refresh should only be for RECENT messages.
+            cursor = context.getContentResolver().query(uri, projection, selection, selectionArgs, sortOrder + " LIMIT 500");
 
             if (cursor != null) {
                 int addressIndex = cursor.getColumnIndexOrThrow("address");
@@ -94,10 +96,12 @@ public class SmsReader {
         Uri uri = Uri.parse("content://mms/inbox");
         String selection = "date > ?";
         String[] selectionArgs = {String.valueOf(timestamp / 1000)}; // MMS uses seconds
+        String[] projection = {"_id", "date"};
 
         Cursor cursor = null;
         try {
-            cursor = context.getContentResolver().query(uri, null, selection, selectionArgs, "date DESC");
+            // BOOST: Specific projection and hard limit
+            cursor = context.getContentResolver().query(uri, projection, selection, selectionArgs, "date DESC LIMIT 100");
 
             if (cursor != null) {
                 int idIndex   = cursor.getColumnIndex("_id");
@@ -146,7 +150,8 @@ public class SmsReader {
         try {
             String selectionPart = "mid=" + mmsId;
             Uri uri = Uri.parse("content://mms/part");
-            cursor = context.getContentResolver().query(uri, null, selectionPart, null, null);
+            String[] projection = {"ct", "text", "_id"};
+            cursor = context.getContentResolver().query(uri, projection, selectionPart, null, null);
 
             if (cursor != null) {
                 int ctIndex   = cursor.getColumnIndex("ct");
@@ -203,7 +208,8 @@ public class SmsReader {
         Cursor cursor = null;
         try {
             Uri uri = Uri.parse("content://mms/" + mmsId + "/addr");
-            cursor = context.getContentResolver().query(uri, null, "type=137", null, null);
+            String[] projection = {"address"};
+            cursor = context.getContentResolver().query(uri, projection, "type=137", null, null);
 
             if (cursor != null) {
                 int addrIndex = cursor.getColumnIndex("address");

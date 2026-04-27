@@ -219,7 +219,14 @@ public class SpamActivity extends AppCompatActivity implements SmsAdapter.OnMess
                 checkEmptyState();
                 if (swipeRefreshLayout.isRefreshing()) swipeRefreshLayout.setRefreshing(false);
             });
-        } catch (Exception e) { Log.e(TAG, "Load error", e); }
+        } catch (Exception e) { 
+            Log.e(TAG, "Load error", e); 
+            safePostToUi(() -> {
+                if (swipeRefreshLayout != null && swipeRefreshLayout.isRefreshing()) {
+                    swipeRefreshLayout.setRefreshing(false);
+                }
+            });
+        }
     }
 
     private void checkEmptyState() {
@@ -266,13 +273,14 @@ public class SpamActivity extends AppCompatActivity implements SmsAdapter.OnMess
         dialog.show();
 
         bgExecutor.execute(() -> {
-            com.example.safeinbox.detection.SpamDetector sd = com.example.safeinbox.detection.SpamDetector.getInstance(this);
-            if (spamScoreEngine == null) {
-                spamScoreEngine = new com.example.safeinbox.detection.SpamScoreEngine(this, (com.example.safeinbox.detection.MLClassifier) sd.getClassifier());
-            }
-            String[] processedWords = sd.getTextProcessor().process(message.getBody());
-            ClassificationResult res = spamScoreEngine.classify(message.getSender(), message.getBody(), processedWords);
-            safePostToUi(() -> {                // UNIFIED INTELLIGENCE SCALING
+            try {
+                com.example.safeinbox.detection.SpamDetector sd = com.example.safeinbox.detection.SpamDetector.getInstance(this);
+                if (spamScoreEngine == null) {
+                    spamScoreEngine = new com.example.safeinbox.detection.SpamScoreEngine(this, (com.example.safeinbox.detection.MLClassifier) sd.getClassifier());
+                }
+                String[] processedWords = sd.getTextProcessor().process(message.getBody());
+                ClassificationResult res = spamScoreEngine.classify(message.getSender(), message.getBody(), processedWords);
+                safePostToUi(() -> {                // UNIFIED INTELLIGENCE SCALING
                 mlScoreTv.setText(res.confidence + "% Total Confidence");
                 mlProgress.setProgress(res.confidence);
 
@@ -353,6 +361,17 @@ public class SpamActivity extends AppCompatActivity implements SmsAdapter.OnMess
                     ((TextView)view.findViewById(R.id.audit_link_score)).setTextColor(verdictColor);
                 }
             });
+            } catch (Exception e) {
+                Log.e(TAG, "Forensic audit failed", e);
+                safePostToUi(() -> {
+                    verdictTv.setText("⚠️ ANALYSIS FAILED");
+                    verdictTv.setTextColor(getResources().getColor(R.color.error_red));
+                    mlScoreTv.setText("0% Confidence");
+                    ((TextView)view.findViewById(R.id.audit_urgency_score)).setText("ERROR");
+                    ((TextView)view.findViewById(R.id.audit_link_score)).setText("Analysis Failed");
+                    ((TextView)view.findViewById(R.id.audit_history_score)).setText("ERROR");
+                });
+            }
         });
     }
 

@@ -19,7 +19,7 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.SafeInbox">
 
-        <!-- Splash screen (Launcher - Temporarily bypassed) -->
+        <!-- Splash screen (Launcher - Enable when Firebase is ready) -->
         <activity
             android:name=".activities.SplashActivity"
             android:exported="true"

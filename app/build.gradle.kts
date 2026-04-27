@@ -1,7 +1,7 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
-    // alias(libs.plugins.google.services) // Temporarily disabled for verification
+    // alias(libs.plugins.google.services) // Enable when google-services.json is added
 }
 
 android {

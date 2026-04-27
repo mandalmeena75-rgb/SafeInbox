@@ -18,8 +18,13 @@ public class ContactUtils {
     public static List<ContactModel> getAllContacts(Context context) {
         List<ContactModel> contactList = new ArrayList<>();
         ContentResolver cr = context.getContentResolver();
+        String[] projection = {
+                ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
+                ContactsContract.CommonDataKinds.Phone.NUMBER,
+                ContactsContract.CommonDataKinds.Phone.PHOTO_THUMBNAIL_URI
+        };
         Cursor cur = cr.query(ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
-                null, null, null, ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME + " ASC");
+                projection, null, null, ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME + " ASC");
 
         if (cur != null) {
             int nameIndex = cur.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME);
@@ -37,62 +42,72 @@ public class ContactUtils {
         return contactList;
     }
 
-    public static String getContactName(Context context, String phoneNumber) {
-        if (phoneNumber == null || phoneNumber.trim().isEmpty()) return null;
-        String name = null;
-        
-        // --- LAYER 1: Deep PhoneLookup (System Optimized) ---
+    private static final java.util.concurrent.ConcurrentHashMap<String, String> nameCache = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final java.util.concurrent.ConcurrentHashMap<String, Boolean> missCache = new java.util.concurrent.ConcurrentHashMap<>();
+    private static java.util.Map<String, String> suffixCache = null;
+
+    private static synchronized void initSuffixCache(Context context) {
+        if (suffixCache != null) return;
+        suffixCache = new java.util.HashMap<>();
         try {
             ContentResolver cr = context.getContentResolver();
-            android.net.Uri uri = android.net.Uri.withAppendedPath(ContactsContract.PhoneLookup.CONTENT_FILTER_URI, android.net.Uri.encode(phoneNumber));
-            Cursor cursor = cr.query(uri, new String[]{ContactsContract.PhoneLookup.DISPLAY_NAME}, null, null, null);
-            if (cursor != null) {
-                if (cursor.moveToFirst()) {
-                    name = cursor.getString(cursor.getColumnIndex(ContactsContract.PhoneLookup.DISPLAY_NAME));
+            Cursor cur = cr.query(ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                    new String[]{ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME, ContactsContract.CommonDataKinds.Phone.NUMBER},
+                    null, null, null);
+            
+            if (cur != null) {
+                while (cur.moveToNext()) {
+                    String contactNumber = cur.getString(cur.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER));
+                    String contactName = cur.getString(cur.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME));
+                    String normalizedContact = normalizeSender(contactNumber);
+                    if (normalizedContact.length() >= 10) {
+                        String contactSuffix = normalizedContact.substring(normalizedContact.length() - 10);
+                        suffixCache.put(contactSuffix, contactName);
+                    }
                 }
-                cursor.close();
+                cur.close();
             }
         } catch (Exception e) {
-            android.util.Log.e("ContactUtils", "Lookup failed for: " + phoneNumber, e);
+            android.util.Log.e("ContactUtils", "Suffix cache init failed", e);
         }
+    }
 
-        if (name != null) return name;
+    public static void clearCache() {
+        nameCache.clear();
+        missCache.clear();
+        suffixCache = null;
+    }
 
-        // --- LAYER 2: Normalized Suffix Matching (Forensic Depth) ---
-        // Some numbers are saved as +91 123... while incoming is 0123...
-        // We normalize both and compare the last 10 digits (Standard Mobile Length)
+    public static String getContactName(Context context, String phoneNumber) {
+        if (phoneNumber == null || phoneNumber.trim().isEmpty()) return null;
+        
+        if (nameCache.containsKey(phoneNumber)) return nameCache.get(phoneNumber);
+        if (missCache.containsKey(phoneNumber)) return null;
+
+        String name = null;
+
+        // Initialize our ultra-fast memory cache of all contacts (1 IPC call total)
+        initSuffixCache(context);
+
+        // --- LAYER 1: Ultra-Fast Memory Suffix Match ---
         String normalizedInput = normalizeSender(phoneNumber);
         if (normalizedInput.length() >= 10) {
             String inputSuffix = normalizedInput.substring(normalizedInput.length() - 10);
-            
-            try {
-                ContentResolver cr = context.getContentResolver();
-                Cursor cur = cr.query(ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
-                        new String[]{ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME, ContactsContract.CommonDataKinds.Phone.NUMBER},
-                        null, null, null);
-                
-                if (cur != null) {
-                    while (cur.moveToNext()) {
-                        String contactNumber = cur.getString(cur.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER));
-                        String normalizedContact = normalizeSender(contactNumber);
-                        if (normalizedContact.length() >= 10) {
-                            String contactSuffix = normalizedContact.substring(normalizedContact.length() - 10);
-                            if (inputSuffix.equals(contactSuffix)) {
-                                name = cur.getString(cur.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME));
-                                break;
-                            }
-                        }
-                    }
-                    cur.close();
-                }
-            } catch (Exception e) {
-                android.util.Log.e("ContactUtils", "Iterative match failed", e);
+            if (suffixCache.containsKey(inputSuffix)) {
+                name = suffixCache.get(inputSuffix);
             }
         }
 
-        // --- LAYER 3: Alphanumeric Entity Resolution ---
+        // --- LAYER 2: Alphanumeric Entity Resolution ---
         if (name == null && PrincipalEntityResolver.isAlphanumericSender(phoneNumber)) {
             name = PrincipalEntityResolver.resolve(phoneNumber);
+        }
+
+        // Cache the result to eliminate future calculations
+        if (name != null) {
+            nameCache.put(phoneNumber, name);
+        } else {
+            missCache.put(phoneNumber, true);
         }
 
         return name;
